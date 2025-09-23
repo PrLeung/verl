@@ -1,0 +1,53 @@
+set -x
+export WANDB_MODE=offline
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+ENGINE=${1:-vllm}
+MODEL_NAME=${2:-/vlm/peirouliang/checkpoints/qwen25_7b_sft_mix_150k_no_think}
+DATASET_NAME="mix_thinklite_490k_llava_next_250k_short"
+
+python3 -m verl.trainer.main_ppo \
+algorithm.adv_estimator=grpo \
+data.train_files=/vlm/peirouliang/verl/data/$DATASET_NAME/train.parquet \
+data.val_files=/vlm/peirouliang/verl/data/$DATASET_NAME/test.parquet \
+data.train_batch_size=512 \
+data.max_prompt_length=1024 \
+data.max_response_length=2048 \
+data.filter_overlong_prompts=True \
+data.truncation='error' \
+data.image_key=images \
+actor_rollout_ref.model.path=$MODEL_NAME \
+actor_rollout_ref.actor.optim.lr=1e-6 \
+actor_rollout_ref.model.use_remove_padding=True \
+actor_rollout_ref.actor.ppo_mini_batch_size=128 \
+actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=20 \
+actor_rollout_ref.actor.use_kl_loss=True \
+actor_rollout_ref.actor.kl_loss_coef=0.01 \
+actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+actor_rollout_ref.actor.entropy_coeff=0 \
+actor_rollout_ref.model.enable_gradient_checkpointing=True \
+actor_rollout_ref.actor.fsdp_config.param_offload=False \
+actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=20 \
+actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+actor_rollout_ref.rollout.name=$ENGINE \
+actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
+actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+actor_rollout_ref.rollout.enable_chunked_prefill=False \
+actor_rollout_ref.rollout.enforce_eager=False \
+actor_rollout_ref.rollout.free_cache_engine=True \
+actor_rollout_ref.rollout.n=5 \
+actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=20 \
+actor_rollout_ref.ref.fsdp_config.param_offload=True \
+algorithm.use_kl_in_reward=False \
+trainer.critic_warmup=0 \
+trainer.logger='["console"]' \
+trainer.project_name='qwen2_5_vl_7b_mix_750k_resample' \
+trainer.experiment_name='qwen2_5_vl_7b_mix_750k_resample' \
+trainer.n_gpus_per_node=4 \
+trainer.nnodes=1 \
+trainer.save_freq=200 \
+trainer.test_freq=20 \
+trainer.total_epochs=1 \
+custom_reward_function.path=verl/utils/reward_score/mix_think.py \
+custom_reward_function.name=compute_score

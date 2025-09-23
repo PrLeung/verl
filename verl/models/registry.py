@@ -32,10 +32,6 @@ _MODELS = {
         "mistral",
         ("ParallelMistralForCausalLMRmPadPP", "ParallelMistralForValueRmPadPP", "ParallelMistralForCausalLMRmPad"),
     ),
-    "ApertusForCausalLM": (
-        "apertus",
-        ("ParallelApertusForCausalLMRmPadPP", "ParallelApertusForValueRmPadPP", "ParallelApertusForCausalLMRmPad"),
-    ),
 }
 
 

@@ -18,7 +18,7 @@ from uuid import uuid4
 
 from verl.utils.rollout_trace import rollout_trace_op
 
-from .schemas import OpenAIFunctionToolSchema, ToolResponse
+from .schemas import OpenAIFunctionToolSchema
 
 
 class BaseTool:
@@ -43,7 +43,7 @@ class BaseTool:
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, ToolResponse]:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> str:
         """Create a tool instance.
 
         Args:
@@ -51,15 +51,14 @@ class BaseTool:
 
         Returns:
             The instance id of the tool.
-            tool_creation_response: The response of the tool when creating the instance.
         """
         if instance_id is None:
-            return str(uuid4()), ToolResponse()
+            return str(uuid4())
         else:
-            return instance_id, ToolResponse()
+            return instance_id
 
     @rollout_trace_op
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[str, float, dict]:
         """Execute the tool.
 
         Args:
@@ -67,11 +66,11 @@ class BaseTool:
             parameters: The json string of the parameters of the tool.
 
         Returns: tool_response, tool_reward_score, tool_metrics
-            tool_response: The ToolResponse object containing text, image, and/or video content.
+            tool_response: The response str of the tool.
             tool_reward_score: The step reward score of the tool.
             tool_metrics: The metrics of the tool.
         """
-        return ToolResponse(text="Updated the tool state."), 0.0, {}
+        return "Updated the tool state.", 0.0, {}
 
     async def calc_reward(self, instance_id: str, **kwargs) -> float:
         """Calculate the reward of the tool.

@@ -87,6 +87,9 @@ custom_cls:
 # Whether to return multi-modal inputs in the dataset. Set to False if rollout generates new multi-modal inputs.
 return_multi_modal_inputs: True
 
+# Mode to control answer suffix. Options: 'stage1', 'stage2', 'stage3'.
+answer_suffix_mode: null
+
 # settings related to data sampler
 sampler:
 
@@ -107,6 +110,3 @@ datagen:
   # The class name of the data generation class within the specified file.
   # E.g. 'MockDataGenerator'
   name: null
-
-# Additional kwargs when calling tokenizer.apply_chat_template
-apply_chat_template_kwargs: {}

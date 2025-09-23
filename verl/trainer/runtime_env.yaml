@@ -1,5 +1,6 @@
 working_dir: ./
-excludes: ["/.git/"]
+excludes: ["/.git/", "/transformers/.git/", "/.venv/", "/venv/", "/.cache/", "/__pycache__/", "/node_modules/", "/data/", "/datasets/", "/outputs/", "/logs/", "/wandb/", "/checkpoints/", "/runs/", "/*.pt", "/*.pth", "/*.bin", "/*.ckpt", "/*.tar", "/*.tar.gz", "/*.zip", "/*.parquet", "/*.npy", "/*.npz", "/*.jpg", "/*.jpeg", "/*.png", "/*.mp4", "/*.whl", "/**/*.whl", "/vlm/peirouliang/verl/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl", "/vlm/peirouliang/verl/flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl"]
+
 env_vars:
   TORCH_NCCL_AVOID_RECORD_STREAMS: "1"
   CUDA_DEVICE_MAX_CONNECTIONS: "1"

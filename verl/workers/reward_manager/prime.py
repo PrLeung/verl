@@ -15,7 +15,7 @@
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 import psutil
 import torch
@@ -24,7 +24,6 @@ from transformers import PreTrainedTokenizer
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
-from verl.workers.reward_manager.abstract import AbstractRewardManager
 
 
 async def single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout=300.0):
@@ -99,7 +98,7 @@ def run_reward_scoring(evaluation_func, completions, references, tasks, extra_in
 
 
 @register("prime")
-class PrimeRewardManager(AbstractRewardManager):
+class PrimeRewardManager:
     """
     The Reward Manager used in https://github.com/PRIME-RL/PRIME
     """
@@ -148,17 +147,12 @@ class PrimeRewardManager(AbstractRewardManager):
         data.batch["acc"] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
         return scores
 
-    def __call__(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
+    def __call__(self, data: DataProto, return_dict: bool = False):
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
-            if return_dict:
-                reward_extra_keys = data.meta_info.get("reward_extra_keys", [])
-                reward_extra_info = {key: data.non_tensor_batch[key] for key in reward_extra_keys}
-                return {"reward_tensor": data.batch["rm_scores"], "reward_extra_info": reward_extra_info}
-            else:
-                return data.batch["rm_scores"]
+            return data.batch["rm_scores"]
 
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
 

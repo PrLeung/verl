@@ -19,6 +19,8 @@ import logging
 import os
 import re
 from collections import defaultdict
+from time import sleep
+import time
 from typing import Optional
 
 import datasets
@@ -27,6 +29,7 @@ import torch
 from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
+from PIL import Image
 
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
@@ -107,7 +110,6 @@ class RLHFDataset(Dataset):
         self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
-        self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
 
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
@@ -117,6 +119,18 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+        # answer_suffix_mode 仅接受 {stage1, stage2, stage3}
+        raw_mode = str(config.get("answer_suffix_mode", "stage1")).lower()
+        stage_mapping = {
+            "stage1": "answer_format",
+            "stage2": "think_format",
+            "stage3": "auto_think",
+        }
+        if raw_mode not in stage_mapping:
+            raise ValueError(
+                f"Invalid answer_suffix_mode: {raw_mode}. Expected one of 'stage1', 'stage2', 'stage3'."
+            )
+        self.answer_suffix_mode = stage_mapping[raw_mode]
 
         self._download()
         self._read_files_and_tokenize()
@@ -153,37 +167,41 @@ class RLHFDataset(Dataset):
                 from verl.utils.dataset.vision_utils import process_image, process_video
 
                 def doc2len(doc) -> int:
-                    messages = self._build_messages(doc)
+                    messages, answer = self._build_messages(doc)
                     raw_prompt = self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                        messages, add_generation_prompt=True, tokenize=False
                     )
-                    images = (
-                        [process_image(image) for image in doc[image_key]]
-                        if image_key in doc and doc[image_key]
-                        else None
-                    )
-                    videos = (
-                        [process_video(video) for video in doc[video_key]]
-                        if video_key in doc and doc[video_key]
-                        else None
-                    )
+                    raw_prompt = self._apply_suffix(raw_prompt, doc, answer)
+                    # print(f"doc: {doc}")
+                    images = [process_image(image) for image in doc[image_key]] if image_key in doc else None
+                    videos = [process_video(video) for video in doc[video_key]] if video_key in doc else None
 
-                    return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                    # return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                    # 尺寸检查：有图或视频短边 < 28 直接跳过
+                    for media in (images or []) + (videos or []):
+                        if media is not None:
+                            h, w = media.size  # PIL.Image
+                            if h < 28 or w < 28:
+                                return 10**9
+
+                    try:
+                        return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                    except Exception:
+                        return 10**9
 
             else:
 
                 def doc2len(doc) -> int:
-                    return len(
-                        tokenizer.apply_chat_template(
-                            doc[prompt_key], add_generation_prompt=True, **self.apply_chat_template_kwargs
-                        )
-                    )
+                    messages, answer = self._build_messages(doc)
+                    raw_prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+                    raw_prompt = self._apply_suffix(raw_prompt, doc, answer)
+                    return len(tokenizer(raw_prompt)["input_ids"])  # approximate length under tokenizer
 
-            dataframe = dataframe.filter(
-                lambda doc: doc2len(doc) <= self.max_prompt_length,
-                num_proc=self.num_workers,
-                desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
-            )
+            # dataframe = dataframe.filter(
+            #     lambda doc: doc2len(doc) <= self.max_prompt_length,
+            #     num_proc=self.num_workers,
+            #     desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
+            # )
 
             print(f"filter dataset len: {len(dataframe)}")
         return dataframe
@@ -202,7 +220,7 @@ class RLHFDataset(Dataset):
 
     def _build_messages(self, example: dict):
         messages: list = example.pop(self.prompt_key)
-
+        answer = example['extra_info']['answer']
         if self.image_key in example or self.video_key in example:
             for message in messages:
                 content = message["content"]
@@ -219,37 +237,61 @@ class RLHFDataset(Dataset):
 
                 message["content"] = content_list
 
-        return messages
+        return messages, answer
+
+    def _apply_suffix(self, raw_prompt: str, row_dict: dict, answer: str) -> str:
+        """
+        根据 answer_suffix_mode 对 raw_prompt 追加后缀：
+        - "answer_format": 追加答案前缀直到并包含 <|answer|>
+        - "think_format": 基于 data_source 追加 <think>/<no_think>
+        - "auto_think": 不追加任何后缀
+        """
+        mode = getattr(self, "answer_suffix_mode", "answer_format")
+        if mode == "answer_format":
+            idx = answer.find("<|answer|>") if isinstance(answer, str) else -1
+            answer_prefix = (
+                answer[: idx + len("<|answer|>")]
+                if isinstance(answer, str) and idx != -1
+                else (answer if isinstance(answer, str) else "")
+            )
+            return raw_prompt + answer_prefix
+        elif mode == "think_format":
+            data_source = row_dict.get("data_source", "")
+            if isinstance(data_source, str) and "llava_cot" in data_source.lower():
+                return raw_prompt + "<|think|>"
+            return raw_prompt + "<|think_no|>"
+        elif mode == "auto_think":
+            return raw_prompt
+        else:
+            # 保底：未知模式时不追加
+            return raw_prompt
 
     def __getitem__(self, item):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe[item]
-        messages = self._build_messages(row_dict)
+        messages, answer = self._build_messages(row_dict)
         model_inputs = {}
 
         if self.processor is not None:
             from verl.utils.dataset.vision_utils import process_image, process_video
 
-            raw_prompt = self.processor.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
-            )
+            raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            raw_prompt = self._apply_suffix(raw_prompt, row_dict, answer)
             multi_modal_data = {}
 
             images = None
-            row_dict_images = row_dict.pop(self.image_key, None)
-            if row_dict_images:
-                images = [process_image(image) for image in row_dict_images]
+            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
+                images = [process_image(image) for image in row_dict.pop(self.image_key)]
 
                 # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["image"] = images
 
             videos = None
-            row_dict_videos = row_dict.pop(self.video_key, None)
-            if row_dict_videos:
-                videos = [process_video(video) for video in row_dict_videos]
+            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
+                videos = [process_video(video) for video in row_dict.pop(self.video_key)]
 
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
@@ -275,14 +317,8 @@ class RLHFDataset(Dataset):
                 row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
 
         else:
-            if self.apply_chat_template_kwargs.get("chat_template") is None:
-                assert hasattr(self.tokenizer, "chat_template"), (
-                    "chat_template should be provided in apply_chat_template_kwargs or tokenizer config, "
-                    "models like GLM can copy chat_template.jinja from instruct models"
-                )
-            raw_prompt = self.tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
-            )
+            raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            raw_prompt = self._apply_suffix(raw_prompt, row_dict, answer)
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
@@ -299,18 +335,17 @@ class RLHFDataset(Dataset):
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
             from verl.models.transformers.qwen2_vl import get_rope_index
 
-            vision_position_ids = get_rope_index(
-                self.processor,
-                input_ids=input_ids[0],
-                image_grid_thw=model_inputs.get("image_grid_thw"),
-                video_grid_thw=model_inputs.get("video_grid_thw"),
-                second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                attention_mask=attention_mask[0],
-            )  # (3, seq_length)
-            valid_mask = attention_mask[0].bool()
-            text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
-            text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
-            position_ids = [torch.cat((text_position_ids, vision_position_ids), dim=0)]  # (1, 4, seq_length)
+            position_ids = [
+                get_rope_index(
+                    self.processor,
+                    input_ids=input_ids[0],
+                    image_grid_thw=model_inputs.get("image_grid_thw"),
+                    video_grid_thw=model_inputs.get("video_grid_thw"),
+                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+                    attention_mask=attention_mask[0],
+                )
+            ]  # (1, 3, seq_len)
+
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 
@@ -341,8 +376,6 @@ class RLHFDataset(Dataset):
             row_dict["full_prompts"] = raw_prompt  # array of strings
 
         # add index for each prompt
-        if "extra_info" not in row_dict or row_dict["extra_info"] is None:
-            row_dict["extra_info"] = dict()
         index = row_dict.get("extra_info", {}).get("index", 0)
         tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
         interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})

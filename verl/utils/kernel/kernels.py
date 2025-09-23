@@ -37,36 +37,10 @@ from dataclasses import dataclass
 
 import torch
 import torch.distributed as dist
-
-try:
-    import triton
-    import triton.language as tl
-
-    HAVE_TRITON = True
-except ImportError:
-    HAVE_TRITON = False
+import triton
+import triton.language as tl
 
 from verl.utils.device import get_torch_device
-
-if not HAVE_TRITON:
-    from contextlib import contextmanager
-    from unittest.mock import MagicMock
-
-    @contextmanager
-    def null_decorator(*args, **kwargs):
-        if len(kwargs) == 0 and len(args) == 1 and callable(args[0]):
-            return args[0]
-        else:
-
-            def inner(func):
-                return func
-
-            return inner
-
-    triton = MagicMock()
-    triton.jit = null_decorator
-    triton.autotune = null_decorator
-    tl = MagicMock()
 
 
 @dataclass

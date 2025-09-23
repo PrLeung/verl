@@ -18,19 +18,19 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 import hydra
 import ray
 import torch
-from omegaconf import OmegaConf
 from split_monkey_patch import fit
 
 from verl import DataProto
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-from verl.utils.reward_score import gsm8k, math_reward
-
+from verl.utils.reward_score import gsm8k, math, mix_think
 
 def _select_rm_score_fn(data_source):
     if data_source == "openai/gsm8k":
         return gsm8k.compute_score
     elif data_source == "lighteval/MATH":
-        return math_reward.compute_score
+        return math.compute_score
+    elif data_source == "russwang/ThinkLite-VL-hard-11k" or data_source== "russwang/ThinkLite-VL-70k" or data_source == "vqa":
+        return mix_think.compute_score
     else:
         raise NotImplementedError
 
@@ -95,13 +95,10 @@ class RewardManager:
 def main(config):
     if not ray.is_initialized():
         # this is for local ray cluster
-        default_runtime_env = {"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}}
-        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
-        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
-        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
-        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
-        print(f"ray init kwargs: {ray_init_kwargs}")
-        ray.init(**OmegaConf.to_container(ray_init_kwargs))
+        ray.init(
+            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}},
+            num_cpus=config.ray_init.num_cpus,
+        )
 
     ray.get(main_task.remote(config))
 
@@ -136,10 +133,10 @@ def main_task(config):
 
     elif config.actor_rollout_ref.actor.strategy == "megatron":
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.single_controller.ray import RayWorkerGroup
+        from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
         from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
 
-        ray_worker_group_cls = RayWorkerGroup
+        ray_worker_group_cls = NVMegatronRayWorkerGroup
 
     else:
         raise NotImplementedError
@@ -194,7 +191,7 @@ def main_task(config):
     reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0)
 
     # Note that we always use function-based RM for validation
-    val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1)
+    val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=4)
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 

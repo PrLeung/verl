@@ -14,21 +14,52 @@
 
 from io import BytesIO
 from typing import Optional
+import os
+import math
 
 import torch
 from PIL import Image
 from qwen_vl_utils import fetch_image, fetch_video
 
 
-def process_image(image: dict | Image.Image) -> Image.Image:
+def process_image(image: dict | Image.Image | bytes | bytearray | str | os.PathLike) -> Image.Image:
+    # Helper: ensure the shortest side is at least 28 while preserving aspect ratio
+    def _ensure_min_side(img: Image.Image) -> Image.Image:
+        width, height = img.size
+        if width > 0 and height > 0 and (width < 28 or height < 28):
+            scale = max(28.0 / float(width), 28.0 / float(height))
+            new_w = max(28, int(math.ceil(width * scale)))
+            new_h = max(28, int(math.ceil(height * scale)))
+            img = img.resize((new_w, new_h), resample=Image.BICUBIC)
+        return img
+
+    # PIL Image -> standardize to RGB and ensure min side
     if isinstance(image, Image.Image):
-        return image.convert("RGB")
+        img = image.convert("RGB")
+        return _ensure_min_side(img)
 
-    if "bytes" in image:
+    # Raw bytes/bytearray -> wrap as BytesIO via the same code path
+    if isinstance(image, (bytes, bytearray)):
+        image = {"bytes": bytes(image)}
+
+    # String/PathLike path -> open directly via PIL
+    if isinstance(image, (str, os.PathLike)):
+        path = str(image)
+        # print(f"path: {path}")
+        with open(path, "rb") as f:
+            img = Image.open(f).convert("RGB")
+        return _ensure_min_side(img)
+
+    # Only check for key membership if it's a mapping
+    if isinstance(image, dict) and "bytes" in image:
         assert "image" not in image, "Cannot have both `bytes` and `image`"
-        image["image"] = Image.open(BytesIO(image["bytes"]))
+        image["image"] = BytesIO(image["bytes"])
 
-    return fetch_image(image)
+    img = fetch_image(image)
+    if isinstance(img, Image.Image):
+        img = img.convert("RGB")
+        img = _ensure_min_side(img)
+    return img
 
 
 VIDEO_FORMAT_HELP = """Currently, we only support the video formats introduced in qwen2-vl.

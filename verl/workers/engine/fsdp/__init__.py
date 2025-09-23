@@ -11,6 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from .transformer_impl import FSDPEngine, FSDPEngineWithLMHead
+from .engine_impl import FSDPEngine
 
-__all__ = ["FSDPEngine", "FSDPEngineWithLMHead"]
+__all__ = ["FSDPEngine"]

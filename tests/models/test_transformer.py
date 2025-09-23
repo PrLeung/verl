@@ -15,7 +15,6 @@
 import torch
 from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from transformers import (
-    ApertusConfig,
     AutoModelForCausalLM,
     AutoModelForTokenClassification,
     GemmaConfig,
@@ -34,7 +33,6 @@ test_configs = [
     MistralConfig(num_hidden_layers=1),
     GemmaConfig(num_hidden_layers=1),
     Qwen2Config(num_hidden_layers=1),
-    ApertusConfig(num_hidden_layers=1),
 ]
 
 

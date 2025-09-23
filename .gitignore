@@ -59,7 +59,6 @@ coverage.xml
 *,cover
 .hypothesis/
 pytest.ini
-output.txt
 
 # Translations
 *.mo
@@ -126,3 +125,15 @@ logs
 log
 outputs
 .history
+*.whl
+
+*.zip
+*.tar.gz
+*.mp4
+*.mov
+*.bin
+*.h5
+*.pt
+*.pth
+
+transformers/
