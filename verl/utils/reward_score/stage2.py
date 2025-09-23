@@ -27,8 +27,8 @@ def _extract_answer_tag_content(predict_str: str) -> str | None:
     if open_answer_count != 1 or close_answer_count != 1:
         return None
 
-    # 必须以 </answer> 结尾
-    if not re.search(r"(?i)</\|answer\|\>\s*$", predict_str):
+    # 必须以 </|answer|> 结尾
+    if not re.search(r"(?i)</\|answer\|>\s*$", predict_str):
         return None
 
     # 提取中间内容

@@ -1,5 +1,5 @@
 import re
-from verl.utils.reward_score.stage2 import (
+from verl.utils.reward_score.stage3 import (
     format_reward_think,
     format_reward_no_think,
 )
@@ -20,6 +20,7 @@ from verl.utils.reward_score.stage2 import (
 
 
 def format_reward(predict_str: str, data_source: str = None) -> float:
+    predict_str = '<|think' + predict_str
     return {
             "think_reward": format_reward_think(predict_str),
             "no_think_reward": format_reward_no_think(predict_str)

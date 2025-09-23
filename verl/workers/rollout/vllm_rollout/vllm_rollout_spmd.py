@@ -55,6 +55,7 @@ from verl import DataProto
 from verl.utils.profiler import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
+from typing import List
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -74,6 +75,19 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
 
+class FirstStepPrefixForce:
+    """首步前缀强制：第一个生成步只允许 allowed_ids。"""
+    def __init__(self, allowed_ids: List[int]):
+        self.allowed = torch.tensor(allowed_ids, dtype=torch.long)
+
+    def __call__(self, input_ids: List[int], logits: torch.Tensor) -> None:
+        # vLLM 传入的 input_ids 是“已生成的输出”（不含 prompt），首步时 len(input_ids)==0
+        if len(input_ids) == 0:
+            neg_inf = torch.finfo(logits.dtype).min
+            allowed = self.allowed.to(logits.device)
+            vals = logits.index_select(0, allowed)
+            logits.fill_(neg_inf)
+            logits.index_copy_(0, allowed, vals)
 
 class vLLMRollout(BaseRollout):
     def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
@@ -316,6 +330,8 @@ class vLLMRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
+            processor = FirstStepPrefixForce([6536, 91])
+            # assert 1==4, f'vllm_inputs: {vllm_inputs}, sampling_params: {self.sampling_params}, lora_requests: {lora_requests}'
             outputs = self.inference_engine.generate(
                 prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,

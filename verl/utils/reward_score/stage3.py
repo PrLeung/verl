@@ -27,8 +27,8 @@ def _extract_answer_tag_content(predict_str: str) -> str | None:
     if open_answer_count != 1 or close_answer_count != 1:
         return None
 
-    # 必须以 </answer> 结尾
-    if not re.search(r"(?i)</\|answer\|\>\s*$", predict_str):
+    # 必须以 </|answer|> 结尾
+    if not re.search(r"(?i)</\|answer\|>\s*$", predict_str):
         return None
 
     # 提取中间内容
@@ -46,7 +46,7 @@ def format_reward_think(predict_str: str) -> float:
         return 0.0
 
     # Anchor: must start with <think>...</think> then <answer>...</answer> till the end
-    pattern = re.compile(r"^\s*\|think\|>\s*<\|answer\|>[\s\S]*?</\|answer\|\>\s*$", re.IGNORECASE)
+    pattern = re.compile(r"^<\|think\|>[\s\S]*?</\|think\|>\s*<\|answer\|>[\s\S]*?</\|answer\|>\s*$", re.IGNORECASE)
     anchored_match = pattern.search(predict_str) is not None
 
     if not anchored_match:
@@ -70,38 +70,6 @@ def format_reward_think(predict_str: str) -> float:
 
     return 1.0 if only_once else 0.0
 
-
-# def format_reward_no_think(predict_str: str) -> float:
-#     # Valid only if there is exactly one </no_think> and one <answer>...</answer>,
-#     # no opening <no_think> present, and the whole string ends with </answer>.
-#     if not predict_str:
-#         return 0.0
-
-#     # Anchor: must start with </no_think> then <answer>...</answer> till the end
-#     pattern = re.compile(r"^\s*</\|think_no\|>\s*<\|answer\|>[\s\S]*?</\|answer\|\>\s*$", re.IGNORECASE)
-#     anchored_match = pattern.search(predict_str) is not None
-
-#     if not anchored_match:
-#         return 0.0
-
-#     # Ensure only one occurrence for each tag and no opening <no_think>
-#     open_no_think_count = len(re.findall(r"(?i)<\|think_no\|>", predict_str))
-#     close_no_think_count = len(re.findall(r"(?i)</\|think_no\|>", predict_str))
-#     open_answer_count = len(re.findall(r"(?i)<\|answer\|>", predict_str))
-#     close_answer_count = len(re.findall(r"(?i)</\|answer\|>", predict_str))
-#     # Do not allow any <think> tags in no_think mode
-#     any_think = re.search(r"(?i)</?\|think\|>", predict_str) is not None
-
-#     only_once = (
-#         open_no_think_count == 0
-#         and close_no_think_count == 1
-#         and open_answer_count == 1
-#         and close_answer_count == 1
-#         and not any_think
-#     )
-
-#     return 1.0 if only_once else 0.0
-
 import re
 
 def format_reward_no_think(predict_str: str) -> float:
@@ -109,7 +77,7 @@ def format_reward_no_think(predict_str: str) -> float:
         return 0.0
 
     # Anchor: 必须匹配 <no_think>...</no_think> 然后 <answer>...</answer>，并覆盖整串
-    pattern = re.compile(r"^\s*\|think_no\|>\s*<\|answer\|>[\s\S]*?</\|answer\|\>\s*$", re.IGNORECASE)
+    pattern = re.compile(r"^<\|think_no\|></\|think_no\|>\s*<\|answer\|>[\s\S]*?</\|answer\|>\s*$", re.IGNORECASE)
     anchored_match = pattern.search(predict_str) is not None
 
     if not anchored_match:
@@ -138,6 +106,7 @@ def format_reward_no_think(predict_str: str) -> float:
 
 
 def format_reward(predict_str: str, data_source: str = None) -> float:
+    predict_str = '<|think'+predict_str
     # 根据data_source决定使用哪种格式验证
     if data_source == "llava_cot":
         return format_reward_think(predict_str)
@@ -160,3 +129,10 @@ def compute_score(data_source, solution_str, ground_truth, format_score: float =
     solution_str = solution_str.lower()
     ground_truth = ground_truth.lower()
     return (1.0 - format_score) * acc_reward(solution_str, ground_truth) + format_score * format_reward(solution_str, data_source)
+
+
+# test_think = "<|think|> I believe the answer is 42. </|think|> <|answer|> 42 </|answer|>"
+# test_no_think = "<|think_no|></|think_no|> <|answer|> 42 </|answer|>"
+# print(format_reward_think(test_think))
+# print(format_reward_no_think(test_no_think))
+# print(_extract_answer_tag_content(test_think))

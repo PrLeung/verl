@@ -67,6 +67,29 @@ def collate_fn(data_list: list[dict]) -> dict:
 
     return {**tensors, **non_tensors}
 
+import torch
+from transformers import LogitsProcessor
+
+class FirstTokenMask(LogitsProcessor):
+    def __init__(self, allowed_ids, prompt_lengths):
+        self.allowed = set(allowed_ids)
+        # prompt_lengths: List[int]，batch内每条样本的原始prompt长度
+        self.prompt_lengths = prompt_lengths
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
+        # input_ids: [bsz, cur_len], scores: [bsz, vocab]
+        bsz, vocab = scores.shape
+        # 用dtype对应的最小值，避免半精度下的 -inf 数值问题
+        neg_inf = torch.finfo(scores.dtype).min
+        for i in range(bsz):
+            # 当前样本是否正处于第一个生成步
+            # 对decoder-only，一般满足 cur_len == prompt_len + 1（有的实现内步长定义略有不同，可兼容两种）
+            cur_len = input_ids.shape[1]
+            if cur_len == self.prompt_lengths[i] or cur_len == self.prompt_lengths[i] + 1:
+                scores[i, :] = neg_inf
+                for tid in self.allowed:
+                    scores[i, tid] = 0.0
+        return scores
 
 class RLHFDataset(Dataset):
     """
@@ -119,6 +142,7 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+        self.allowed_first_token_ids = [100,200]
         # answer_suffix_mode 仅接受 {stage1, stage2, stage3}
         raw_mode = str(config.get("answer_suffix_mode", "stage1")).lower()
         stage_mapping = {
@@ -261,7 +285,7 @@ class RLHFDataset(Dataset):
                 return raw_prompt + "<|think|>"
             return raw_prompt + "<|think_no|>"
         elif mode == "auto_think":
-            return raw_prompt
+            return raw_prompt + "<|think"
         else:
             # 保底：未知模式时不追加
             return raw_prompt
@@ -301,6 +325,10 @@ class RLHFDataset(Dataset):
 
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
+            # if getattr(self, "answer_suffix_mode", "answer_format") == "stage3":
+            #     prompt_lens = attention_mask.sum()
+            #     lp = LogitsProcessorList([FirstTokenMask(self.allowed_first_token_ids, prompt_lens)])
+            # assert 1==2, f'input_ids: {input_ids}, attention_mask: {attention_mask}, model_inputs: {model_inputs}'
 
             if "second_per_grid_ts" in model_inputs:
                 model_inputs.pop("second_per_grid_ts")
