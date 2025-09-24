@@ -57,8 +57,6 @@ from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
 from typing import List
 
-os.environ["VLLM_USE_V1"] = "0"
-
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -77,34 +75,6 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
 
-
-class FirstTokenMask:
-    def __init__(self, allowed_ids):
-        self.allowed = set(allowed_ids)
-        # prompt_lengths: List[int]，batch内每条样本的原始prompt长度
-        self.mask = None  # 用于标记哪些token是允许的
-
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
-        # input_ids: [bsz, cur_len], scores: [bsz, vocab]
-        # bsz, vocab = scores.shape
-        bsz = 1
-        # assert 1==2, f'input_ids:{input_ids}, scores:{scores.shape}, self.prompt_lengths:{self.prompt_lengths}'
-        # 用dtype对应的最小值，避免半精度下的 -inf 数值问题
-        neg_inf = torch.finfo(scores.dtype).min
-        for i in range(bsz):
-            # 当前样本是否正处于第一个生成步
-            # 对decoder-only，一般满足 cur_len == prompt_len + 1（有的实现内步长定义略有不同，可兼容两种）
-            cur_len = len(input_ids)
-            if cur_len == 0:
-                if self.mask is None:
-                    self.mask = torch.tensor([
-                        False if i in self.allowed else True for i in range(scores.shape[-1])
-                    ], dtype=torch.bool, device=scores.device)
-                
-                scores[self.mask] = neg_inf
-                scores[~self.mask] /= 5.0  # 提高允许token的logits，避免被其他token抢掉
-                
-        return scores
 
 class vLLMRollout(BaseRollout):
     def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
@@ -234,14 +204,15 @@ class vLLMRollout(BaseRollout):
                 kwargs[k] = config.get(k)
         kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
-        self.logits_processor = FirstTokenMask(
-            allowed_ids=[6536,91],
-        )
-        self.sampling_params = SamplingParams(
-            logits_processors=[self.logits_processor], 
-            **kwargs)
+        self.sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id
+        # 在模型加载后插入 monkey patch
+        _monkey_patch_compute_logits(
+            self.inference_engine,
+            len(tokenizer),
+            [6536, 91]  # 你想允许的 token id
+        )
 
     @contextmanager
     def update_sampling_params(self, **kwargs):
@@ -352,6 +323,8 @@ class vLLMRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
+            # processor = FirstStepPrefixForce([6536, 91])
+            # assert 1==4, f'vllm_inputs: {vllm_inputs}, sampling_params: {self.sampling_params}, lora_requests: {lora_requests}'
             outputs = self.inference_engine.generate(
                 prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
@@ -421,19 +394,73 @@ class vLLMRollout(BaseRollout):
 
 
 # https://github.com/vllm-project/vllm/issues/13175
-def _monkey_patch_compute_logits(model, vocab_size: int):
-    original_compute_logits = model.compute_logits
+def _monkey_patch_compute_logits(engine, vocab_size: int, allowed_ids: list[int]):
+    # 获取正确的模型对象
+    try:
+        # 尝试不同的路径来找到模型
+        if hasattr(engine.llm_engine, 'model_executor'):
+            model_executor = engine.llm_engine.model_executor
+            if hasattr(model_executor, 'driver_worker'):
+                worker = model_executor.driver_worker
+                if hasattr(worker, 'model_runner'):
+                    model = worker.model_runner.model
+                elif hasattr(worker, 'model'):
+                    model = worker.model
+                else:
+                    print("Cannot find model in worker")
+                    return
+            else:
+                print("Cannot find driver_worker")
+                return
+        else:
+            print("Cannot find model_executor")
+            return
+            
+        # 查找 lm_head 或类似的输出层
+        if hasattr(model, 'lm_head'):
+            lm_head = model.lm_head
+        elif hasattr(model, 'output'):
+            lm_head = model.output
+        else:
+            print("Cannot find output layer")
+            return
+            
+        original_forward = lm_head.forward
+        
+        # 用于跟踪每个序列的生成步数
+        step_tracker = {}
+        
+        def restricted_forward(self, hidden_states):
+            logits = original_forward(hidden_states)
+            
+            # 这里需要想办法获取当前是否为第一个token
+            # 一个可能的方法是检查hidden_states的特征
+            batch_size = hidden_states.shape[0]
+            
+            # 简单的启发式方法：假设第一次调用是第一个token
+            # 您可能需要根据实际情况调整这个逻辑
+            for i in range(batch_size):
+                seq_key = id(hidden_states)  # 使用tensor id作为序列标识
+                if seq_key not in step_tracker:
+                    step_tracker[seq_key] = 0
+                    # 只在第一个token时限制
+                    neg_inf = torch.finfo(logits.dtype).min
+                    mask = torch.full_like(logits[i:i+1], neg_inf)
+                    mask[..., allowed_ids] = logits[i:i+1, allowed_ids]
+                    logits[i:i+1] = mask
+                
+                step_tracker[seq_key] += 1
+                
+            # 限制词汇表大小
+            logits[..., vocab_size:] = float("-inf")
+            return logits
+            
+        lm_head.forward = MethodType(restricted_forward, lm_head)
+        print("Successfully patched lm_head")
+        
+    except Exception as e:
+        print(f"Failed to patch model: {e}")
 
-    def compute_logits(
-        self,
-        hidden_states: torch.Tensor,
-        sampling_metadata: SamplingMetadata,
-    ) -> torch.Tensor:
-        logits = original_compute_logits(hidden_states, sampling_metadata)
-        logits[..., vocab_size:] = float("-inf")
-        return logits
-
-    model.compute_logits = MethodType(compute_logits, model)
 
 
 class vLLMAsyncRollout:
@@ -508,7 +535,7 @@ class vLLMAsyncRollout:
         self.sharding_manager.inference_engine = self.inference_engine
         self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
 
-        _monkey_patch_compute_logits(self.inference_engine.worker.model_runner.model, len(self.tokenizer))
+        _monkey_patch_compute_logits(self.inference_engine.worker.model_runner.model, len(self.tokenizer), [6536, 91])
 
     def sleep(self, *args, **kwargs):
         """Offload model weights and discard kv cache."""

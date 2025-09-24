@@ -13,12 +13,13 @@ export NCCL_NET_GDR_LEVEL=2
 export NCCL_IB_QPS_PER_CONNECTION=4
 export NCCL_IB_TC=160
 export NCCL_IB_TIMEOUT=22
+export PYTHONPATH=/vlm/peirouliang/verl:$PYTHONPATH
 
 ENGINE=${1:-vllm}
 # MODEL_NAME=${2:-/vlm/pretrain_models/Qwen/Qwen2.5-VL-7B-Instruct}
-MODEL_NAME=${2:-/vlm/peirouliang/checkpoints/qwen25_vl_7b_rl_cot_40k_vqa_20k_stage1_new_format}
+MODEL_NAME=${2:-/vlm/peirouliang/checkpoints/qwen25_vl_7b_rl_cot_40k_vqa_20k_stage2_new_format}
 DATASET_NAME="mix_llava_cot_40k_llava_next_20k_new_format"
-STAGE=2
+STAGE=3
 
 ray job submit --address="http://127.0.0.1:8265" \
     --runtime-env=verl/trainer/runtime_env.yaml \
@@ -68,5 +69,5 @@ ray job submit --address="http://127.0.0.1:8265" \
     trainer.save_freq=10 \
     trainer.test_freq=5 \
     trainer.total_epochs=1 \
-    custom_reward_function.path=verl/utils/reward_score/stage$STAGE.py \
+    custom_reward_function.path=verl/utils/reward_score/mix_think.py \
     custom_reward_function.name=compute_score

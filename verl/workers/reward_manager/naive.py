@@ -26,7 +26,7 @@ from verl.workers.reward_manager.test_format import format_reward
 class NaiveRewardManager:
     """The reward manager."""
 
-    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key="data_source") -> None:
+    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key="data_source", stage=None) -> None:
         """
         Initialize the NaiveRewardManager instance.
 
@@ -36,11 +36,13 @@ class NaiveRewardManager:
             compute_score: A function to compute the reward score. If None, `default_compute_score` will be used.
             reward_fn_key: The key used to access the data source in the non-tensor batch data. Defaults to
                 "data_source".
+            stage: The stage of the reward function.
         """
         self.tokenizer = tokenizer  # Store the tokenizer for decoding token IDs
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or default_compute_score
         self.reward_fn_key = reward_fn_key  # Store the key for accessing the data source
+        self.stage = stage
 
     def __call__(self, data: DataProto, return_dict=False):
         """We will expand this function gradually based on the available datasets"""
@@ -81,13 +83,13 @@ class NaiveRewardManager:
             num_turns = data_item.non_tensor_batch.get("__num_turns__", None)
             extra_info["num_turns"] = num_turns
 
-            score = self.compute_score(
+            score, format_score, acc_score = self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
+                stage=self.stage,
             )
-            format_score = format_reward(predict_str=response_str)
 
             if isinstance(score, dict):
                 reward = score["score"]
@@ -107,13 +109,14 @@ class NaiveRewardManager:
                 print("[prompt]", prompt_str)
                 print("[response]", response_str)
                 print("[ground_truth]", ground_truth)
-                
+                print("[data_source]", data_source)
                 if isinstance(score, dict):
                     for key, value in score.items():
                         print(f"[{key}]", value)
                 else:
                     print("[score]", score)
                 print("[format_score]", format_score)
+                print("[acc_score]", acc_score)
                 
         if return_dict:
             return {

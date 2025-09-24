@@ -57,8 +57,6 @@ from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
 from typing import List
 
-os.environ["VLLM_USE_V1"] = "0"
-
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -77,34 +75,19 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
 
+class FirstStepPrefixForce:
+    """首步前缀强制：第一个生成步只允许 allowed_ids。"""
+    def __init__(self, allowed_ids: List[int]):
+        self.allowed = torch.tensor(allowed_ids, dtype=torch.long)
 
-class FirstTokenMask:
-    def __init__(self, allowed_ids):
-        self.allowed = set(allowed_ids)
-        # prompt_lengths: List[int]，batch内每条样本的原始prompt长度
-        self.mask = None  # 用于标记哪些token是允许的
-
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
-        # input_ids: [bsz, cur_len], scores: [bsz, vocab]
-        # bsz, vocab = scores.shape
-        bsz = 1
-        # assert 1==2, f'input_ids:{input_ids}, scores:{scores.shape}, self.prompt_lengths:{self.prompt_lengths}'
-        # 用dtype对应的最小值，避免半精度下的 -inf 数值问题
-        neg_inf = torch.finfo(scores.dtype).min
-        for i in range(bsz):
-            # 当前样本是否正处于第一个生成步
-            # 对decoder-only，一般满足 cur_len == prompt_len + 1（有的实现内步长定义略有不同，可兼容两种）
-            cur_len = len(input_ids)
-            if cur_len == 0:
-                if self.mask is None:
-                    self.mask = torch.tensor([
-                        False if i in self.allowed else True for i in range(scores.shape[-1])
-                    ], dtype=torch.bool, device=scores.device)
-                
-                scores[self.mask] = neg_inf
-                scores[~self.mask] /= 5.0  # 提高允许token的logits，避免被其他token抢掉
-                
-        return scores
+    def __call__(self, input_ids: List[int], logits: torch.Tensor) -> None:
+        # vLLM 传入的 input_ids 是“已生成的输出”（不含 prompt），首步时 len(input_ids)==0
+        if len(input_ids) == 0:
+            neg_inf = torch.finfo(logits.dtype).min
+            allowed = self.allowed.to(logits.device)
+            vals = logits.index_select(0, allowed)
+            logits.fill_(neg_inf)
+            logits.index_copy_(0, allowed, vals)
 
 class vLLMRollout(BaseRollout):
     def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
@@ -234,12 +217,7 @@ class vLLMRollout(BaseRollout):
                 kwargs[k] = config.get(k)
         kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
-        self.logits_processor = FirstTokenMask(
-            allowed_ids=[6536,91],
-        )
-        self.sampling_params = SamplingParams(
-            logits_processors=[self.logits_processor], 
-            **kwargs)
+        self.sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id
 
@@ -352,6 +330,8 @@ class vLLMRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
+            processor = FirstStepPrefixForce([6536, 91])
+            # assert 1==4, f'vllm_inputs: {vllm_inputs}, sampling_params: {self.sampling_params}, lora_requests: {lora_requests}'
             outputs = self.inference_engine.generate(
                 prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,

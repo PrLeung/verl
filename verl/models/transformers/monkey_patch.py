@@ -22,7 +22,12 @@ from typing import Optional
 
 import torch
 from packaging import version
-from transformers.modeling_flash_attention_utils import _flash_attention_forward
+try:
+    # transformers <= 4.47.x
+    from transformers.modeling_flash_attention_utils import _flash_attention_forward
+except Exception:
+    # transformers >= 4.48.0 moved flash attention utils
+    from transformers.integrations.flash_attention import _flash_attention_forward
 from transformers.modeling_utils import PreTrainedModel
 
 from verl.utils.import_utils import is_trl_available

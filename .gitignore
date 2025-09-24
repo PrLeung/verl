@@ -135,5 +135,3 @@ outputs
 *.h5
 *.pt
 *.pth
-
-transformers/
