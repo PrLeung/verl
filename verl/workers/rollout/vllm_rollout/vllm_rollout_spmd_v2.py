@@ -65,25 +65,16 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 # Write logits to CSV file helper
-LOGITS_LOG_PATH = os.getenv("VERL_LOGITS_LOG_FILE","/vlm/peirouliang/verl/logits_multi10.csv")
-_file_cleared = False  # Global flag to track if file has been cleared
+LOGITS_LOG_PATH = os.getenv("VERL_LOGITS_LOG_FILE","/vlm/peirouliang/verl/logits_origin.csv")
 
 def _logits_log_csv(step: int, token_6536_logit: float, token_91_logit: float):
-    global _file_cleared
     try:
-        # Clear file only on first call if it exists
-        if not _file_cleared and os.path.exists(LOGITS_LOG_PATH):
-            with open(LOGITS_LOG_PATH, "w") as f:
-                pass  # Clear the file
-            _file_cleared = True
-        
-        # Write header and data
+        # If file does not exist or is empty, write header first
+        need_header = not os.path.exists(LOGITS_LOG_PATH) or os.path.getsize(LOGITS_LOG_PATH) == 0
         with open(LOGITS_LOG_PATH, "a") as f:
-            # Check if we need to write header (file is empty or doesn't exist)
-            if not _file_cleared or os.path.getsize(LOGITS_LOG_PATH) == 0:
+            if need_header:
                 # 按用户要求的表头字段
                 f.write("step,6576logit,91logit\n")
-                _file_cleared = True
             f.write(f"{int(step)},{token_6536_logit},{token_91_logit}\n")
     except Exception:
         pass
@@ -139,8 +130,6 @@ class FirstTokenMask:
                 world_size = int(os.environ.get("WORLD_SIZE", "8"))
                 denom = max(1, self.batchsize * self.rollout_count / world_size)
                 current_step = FirstTokenMask.total_rollout_count // denom
-                # if current_step < 10:
-                #     scores[6536] = torch.abs(scores[6536]) * 10
                 token_6536_logit = scores[6536].item()
                 token_91_logit = scores[91].item()
                 _logits_log_csv(current_step, token_6536_logit, token_91_logit)

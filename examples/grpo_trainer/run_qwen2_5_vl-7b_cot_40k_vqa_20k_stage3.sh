@@ -7,14 +7,16 @@ ENGINE=${1:-vllm}
 # MODEL_NAME=${2:-/vlm/pretrain_models/Qwen/Qwen2.5-VL-7B-Instruct}
 MODEL_NAME=${2:-/vlm/peirouliang/checkpoints/qwen25_vl_7b_rl_cot_40k_vqa_20k_stage2_new_format}
 DATASET_NAME="mix_llava_cot_40k_llava_next_20k_new_format"
-# STAGE优先顺序：第3个命令行参数 > 现有环境变量STAGE > 默认3
-STAGE=${3:-${STAGE:-3}}
+STAGE=3
 
 max_prompt_length=$((1024 * 18))
 max_response_length=$((1024 * 18))
-# export VERL_LOGITS_LOG_FILE=/vlm/peirouliang/verl/logits_multi10.csv
 
-python3 -m verl.trainer.main_ppo \
+ray job submit --address="http://127.0.0.1:8265" \
+    --runtime-env=verl/trainer/runtime_env.yaml \
+    --no-wait \
+    -- \
+    python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/vlm/peirouliang/verl/data/$DATASET_NAME/train.parquet \
     data.val_files=/vlm/peirouliang/verl/data/$DATASET_NAME/test.parquet \
@@ -24,7 +26,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=False \
     data.truncation='error' \
     data.image_key=images \
-    data.answer_suffix_mode=stage${STAGE} \
+    data.answer_suffix_mode=stage$STAGE \
     actor_rollout_ref.model.path=$MODEL_NAME \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -55,9 +57,11 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name=qwen2_5_vl_7b_mix_cot_40k_vqa_20k_stage${STAGE}_multi10 \
     trainer.experiment_name=qwen2_5_vl_7b_mix_cot_40k_vqa_20k_stage${STAGE}_multi10 \
     trainer.n_gpus_per_node=8 \
-    trainer.nnodes=1 \
+    trainer.nnodes=4 \
     trainer.save_freq=10 \
     trainer.test_freq=5 \
     trainer.total_epochs=1 \
+    trainer.resume_mode='resume_path' \
+    trainer.resume_from_path='/data_0/ray/session_2025-09-25_10-53-35_737785_1602627/runtime_resources/working_dir_files/_ray_pkg_0a3bcdf370c8abbc/checkpoints/qwen2_5_vl_7b_mix_cot_40k_vqa_20k_stage3_multi10/qwen2_5_vl_7b_mix_cot_40k_vqa_20k_stage3_multi10/global_step_90' \
     custom_reward_function.path=verl/utils/reward_score/mix_think.py \
     custom_reward_function.name=compute_score

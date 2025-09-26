@@ -77,7 +77,7 @@ def format_reward_no_think(predict_str: str) -> float:
         return 0.0
 
     # Anchor: 必须匹配 <no_think>...</no_think> 然后 <answer>...</answer>，并覆盖整串
-    pattern = re.compile(r"^<\|think_no\|></\|think_no\|>\s*<\|answer\|>[\s\S]*?</\|answer\|>\s*$", re.IGNORECASE)
+    pattern = re.compile(r"^<\|think_no\|>\s*</\|think_no\|>\s*<\|answer\|>[\s\S]*?</\|answer\|>\s*$", re.IGNORECASE)
     anchored_match = pattern.search(predict_str) is not None
 
     if not anchored_match:
