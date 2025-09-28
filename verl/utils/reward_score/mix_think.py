@@ -107,7 +107,7 @@ def format_reward_no_think(predict_str: str) -> float:
 
 def format_reward(predict_str: str, data_source: str = None) -> float:
     # 根据data_source决定使用哪种格式验证
-    if data_source == "llava_cot":
+    if data_source == "think":
         return format_reward_think(predict_str)
     else:
         return format_reward_no_think(predict_str)
@@ -130,12 +130,12 @@ def compute_score(data_source, solution_str, ground_truth, format_score: float =
     
     if stage == "stage1":
         format_score=0.1
-        if data_source == "llava_cot":
+        if data_source == "think":
             solution_str = '<|think|> </|think|><|answer|>'+solution_str
         else:
             solution_str = '<|think_no|></|think_no|><|answer|>'+solution_str
     elif stage == "stage2":
-        if data_source == "llava_cot":
+        if data_source == "think":
             solution_str = '<|think|>'+solution_str
         else:
             solution_str = '<|think_no|>'+solution_str

@@ -7,19 +7,11 @@ from typing import List, Dict, Any
 
 # default: Load the model on the available device(s)
 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-    "/vlm/peirouliang/checkpoints/qwen25_vl_7b_rl_cot_40k_vqa_20k_stage1", torch_dtype="auto", device_map="auto"
+    "/vlm/pretrain_models/Qwen/Qwen2.5-VL-7B-Instruct", torch_dtype="auto", device_map="auto"
 )
 
-# We recommend enabling flash_attention_2 for better acceleration and memory saving, especially in multi-image and video scenarios.
-# model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-#     "Qwen/Qwen2.5-VL-7B-Instruct",
-#     torch_dtype=torch.bfloat16,
-#     attn_implementation="flash_attention_2",
-#     device_map="auto",
-# )
-
 # default processer
-processor = AutoProcessor.from_pretrained("/vlm/peirouliang/checkpoints/qwen25_vl_7b_rl_cot_40k_vqa_20k_stage1")
+processor = AutoProcessor.from_pretrained("/vlm/pretrain_models/Qwen/Qwen2.5-VL-7B-Instruct")
 
 # The default range for the number of visual tokens per image in the model is 4-16384.
 # You can set min_pixels and max_pixels according to your needs, such as a token range of 256-1280, to balance performance and cost.

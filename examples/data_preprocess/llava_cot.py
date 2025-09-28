@@ -121,7 +121,7 @@ def main():
         return text
 
     def make_llava_map_fn(split):
-        data_source = "llava_cot"
+        data_source = "think"
 
         def process_fn(example, idx):
             sample_id = example.get("id")
@@ -176,7 +176,7 @@ def main():
                 "data_source": data_source,
                 "prompt": [{"role": "user", "content": problem}],
                 "images": images,  # 统一 List[str]
-                "ability": "mix",
+                "ability": "think",
                 "reward_model": {"style": "rule", "ground_truth": ground_truth},
                 "extra_info": {
                     "split": split,

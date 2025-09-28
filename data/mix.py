@@ -21,6 +21,18 @@ def parse_args() -> argparse.Namespace:
         help="Path to the second input Parquet file.",
     )
     parser.add_argument(
+        "--test1",
+        type=str,
+        default="/vlm/peirouliang/verl/data/llava_next_20k/test.parquet",
+        help="Path to the first test Parquet file.",
+    )
+    parser.add_argument(
+        "--test2",
+        type=str,
+        default="/vlm/peirouliang/verl/data/llava_cot_40k/test.parquet",
+        help="Path to the second test Parquet file.",
+    )
+    parser.add_argument(
         "--out_dir",
         type=str,
         default="/vlm/peirouliang/verl/data/mix_llava_cot_40k_llava_next_20k_new_format",
@@ -37,12 +49,6 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="test.parquet",
         help="Output file name for test parquet (default: test.parquet).",
-    )
-    parser.add_argument(
-        "--test_samples",
-        type=int,
-        default=5,
-        help="Number of samples to draw from each dataset for test set (default: 5).",
     )
     return parser.parse_args()
 
@@ -90,11 +96,13 @@ def main() -> None:
 
     in1 = args.in1
     in2 = args.in2
+    test1 = args.test1
+    test2 = args.test2
     out_dir = args.out_dir
     train_file_name = args.train_file_name
     test_file_name = args.test_file_name
-    n_samples = args.test_samples
 
+    # 检查训练文件是否存在
     if not os.path.isfile(in1):
         print(f"Input file not found: {in1}", file=sys.stderr)
         sys.exit(1)
@@ -102,22 +110,31 @@ def main() -> None:
         print(f"Input file not found: {in2}", file=sys.stderr)
         sys.exit(1)
 
+    # 检查测试文件是否存在
+    if not os.path.isfile(test1):
+        print(f"Test file not found: {test1}", file=sys.stderr)
+        sys.exit(1)
+    if not os.path.isfile(test2):
+        print(f"Test file not found: {test2}", file=sys.stderr)
+        sys.exit(1)
+
     os.makedirs(out_dir, exist_ok=True)
 
-    df1, reader1 = read_parquet(in1)
-    df2, reader2 = read_parquet(in2)
+    # 读取训练数据
+    train_df1, train_reader1 = read_parquet(in1)
+    train_df2, train_reader2 = read_parquet(in2)
+    
+    # 读取测试数据
+    test_df1, test_reader1 = read_parquet(test1)
+    test_df2, test_reader2 = read_parquet(test2)
 
     import pandas as pd
 
-    # 随机采样各自5条数据作为 test
-    test1 = df1.sample(n=min(n_samples, len(df1)), random_state=42)
-    test2 = df2.sample(n=min(n_samples, len(df2)), random_state=42)
-    test_df = pd.concat([test1, test2], ignore_index=True)
-
-    # 剩下的作为 train
-    train1 = df1.drop(test1.index)
-    train2 = df2.drop(test2.index)
-    train_df = pd.concat([train1, train2], ignore_index=True)
+    # 合并训练数据
+    train_df = pd.concat([train_df1, train_df2], ignore_index=True)
+    
+    # 直接合并测试数据，不进行采样
+    test_df = pd.concat([test_df1, test_df2], ignore_index=True)
 
     # 写出 parquet
     train_output_path = os.path.join(out_dir, train_file_name)
@@ -126,9 +143,11 @@ def main() -> None:
     write_parquet(test_df, test_output_path)
 
     print(
-        "Split successfully",
-        f"in1_reader={reader1}",
-        f"in2_reader={reader2}",
+        "Merge successfully",
+        f"train1_reader={train_reader1}",
+        f"train2_reader={train_reader2}",
+        f"test1_reader={test_reader1}",
+        f"test2_reader={test_reader2}",
         f"train_rows={len(train_df)}",
         f"test_rows={len(test_df)}",
         f"train_output={train_output_path}",

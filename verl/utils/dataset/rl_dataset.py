@@ -281,7 +281,7 @@ class RLHFDataset(Dataset):
             return raw_prompt + answer_prefix
         elif mode == "think_format":
             data_source = row_dict.get("data_source", "")
-            if isinstance(data_source, str) and "llava_cot" in data_source.lower():
+            if isinstance(data_source, str) and "think" in data_source.lower():
                 return raw_prompt + "<|think|>"
             return raw_prompt + "<|think_no|>"
         elif mode == "auto_think":

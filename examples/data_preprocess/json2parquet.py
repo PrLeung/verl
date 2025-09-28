@@ -22,6 +22,8 @@ def main():
     # LLaVA-like raw jsonl
     parser.add_argument("--llava_json_path", default="/vlm/peirouliang/data/llava_next_rl_75k_sample_20k.json")
     parser.add_argument("--images_root", default="/mnt/vlmdata/data/train_images/llava_next_raw_format", help="Optional root to prefix llava image path")
+    parser.add_argument("--data_source", default="think_no", help="Data source identifier")
+    parser.add_argument("--ability", default="think_no", help="Ability identifier")
 
     args = parser.parse_args()
 
@@ -80,10 +82,10 @@ def main():
     # 不进行筛选与抽样，直接转换为 Dataset
     llava_sampled = datasets.Dataset.from_list(_llava_records)
 
-    def _strip_think_tags(text):
-        if not isinstance(text, str):
-            return text
-        return re.sub(r"</?(think|no_think)>", "", text, flags=re.IGNORECASE)
+    # def _strip_think_tags(text):
+    #     if not isinstance(text, str):
+    #         return text
+    #     return re.sub(r"</?(think|no_think)>", "", text, flags=re.IGNORECASE)
 
     def _extract_answer_span(text):
         """Return content inside <\|answer\|>...</\|answer\|>; if not found, return original text."""
@@ -99,14 +101,16 @@ def main():
         return text
 
     def make_llava_map_fn(split):
-        data_source = "llava_next"
+        data_source = args.data_source
 
         def process_fn(example, idx):
             sample_id = example.get("id")
             sample_id = str(int(sample_id)) if isinstance(sample_id, (int, float)) else str(sample_id)
 
+            # 统一生成绝对路径字符串；兼容 image: str 与 images: List[str]
+            images = []
             image_path = example.get("image")
-            # 统一生成绝对路径字符串；无图时给空列表
+            images_list = example.get("images")
             if isinstance(image_path, (str, os.PathLike)):
                 image_full = (
                     image_path
@@ -114,10 +118,24 @@ def main():
                     else os.path.join(args.images_root, str(image_path))
                 )
                 images = [str(image_full)]
-            else:
-                images = []
+            elif isinstance(images_list, list):
+                norm_images = []
+                for it in images_list:
+                    if not isinstance(it, (str, os.PathLike)):
+                        continue
+                    it = str(it)
+                    image_full = it if os.path.isabs(it) else os.path.join(args.images_root, it)
+                    norm_images.append(str(image_full))
+                images = norm_images
+
+            # 解析文本，兼容 LLaVA 的 conversations 与 messages 结构
+            def _strip_image_placeholder(text):
+                if not isinstance(text, str):
+                    return text
+                return text.replace("<image>", "").strip()
 
             conversations = example.get("conversations") or []
+            messages = example.get("messages") or []
             human = ""
             gpt = ""
             if isinstance(conversations, list) and len(conversations) >= 2:
@@ -126,6 +144,27 @@ def main():
                     human = a.get("value") or ""
                 if isinstance(b, dict):
                     gpt = b.get("value") or ""
+            elif isinstance(messages, list) and len(messages) >= 1:
+                # 取第一条 user 作为 human，最后一条 assistant 作为 gpt（若存在）
+                for m in messages:
+                    if isinstance(m, dict) and str(m.get("role")).lower() == "user":
+                        if m.get("content"):
+                            human = m.get("content")
+                            break
+                for m in reversed(messages):
+                    if isinstance(m, dict) and str(m.get("role")).lower() == "assistant":
+                        if m.get("content"):
+                            gpt = m.get("content")
+                            break
+                if not gpt:
+                    for m in reversed(messages):
+                        if isinstance(m, dict) and str(m.get("role")).lower() != "user":
+                            if m.get("content"):
+                                gpt = m.get("content")
+                                break
+
+            human = _strip_image_placeholder(human)
+            gpt = _strip_image_placeholder(gpt)
 
             problem = human or ""
             answer = gpt or ""
@@ -139,7 +178,7 @@ def main():
                 "data_source": data_source,
                 "prompt": [{"role": "user", "content": problem}],
                 "images": images,  # 统一 List[str]
-                "ability": "mix",
+                "ability": args.ability,
                 "reward_model": {"style": "rule", "ground_truth": ground_truth},
                 "extra_info": {
                     "split": split,
