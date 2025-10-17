@@ -242,15 +242,19 @@ def apply_monkey_patch(
 
     # TODO: VLM models only, unify monkey patch to LLM models.
     if model.config.model_type == "qwen2_5_vl":
+        # if is_transformers_version_in_range(min_version="4.53.0"):
+        #     from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLAttention
+
+        #     # TODO: Support transformers 4.53
+        #     raise ValueError("Transformers 4.53 is not supported")
+        # else:
+        #     from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+        #         Qwen2_5_VLFlashAttention2 as Qwen2_5_VLAttention,
+        #     )
         if is_transformers_version_in_range(min_version="4.53.0"):
             from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLAttention
-
-            # TODO: Support transformers 4.53
-            raise ValueError("Transformers 4.53 is not supported")
         else:
-            from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
-                Qwen2_5_VLFlashAttention2 as Qwen2_5_VLAttention,
-            )
+            from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLFlashAttention2 as Qwen2_5_VLAttention
 
         if use_remove_padding or ulysses_sp_size > 1:
             from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward

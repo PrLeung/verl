@@ -52,6 +52,7 @@ def main():
                     continue
                 record = json.loads(line)
                 _llava_records.append(record)
+    
 
     def _replace_think_tags(text):
         """把 <think> 替换成 <|think|>，</think> 替换成 <|/think|>"""
@@ -136,6 +137,7 @@ def main():
 
             conversations = example.get("conversations") or []
             messages = example.get("messages") or []
+            # assert 1==4, f'conversations:{conversations}, messages:{messages}'
             human = ""
             gpt = ""
             if isinstance(conversations, list) and len(conversations) >= 2:
@@ -145,25 +147,25 @@ def main():
                 if isinstance(b, dict):
                     gpt = b.get("value") or ""
             elif isinstance(messages, list) and len(messages) >= 1:
-                # 取第一条 user 作为 human，最后一条 assistant 作为 gpt（若存在）
+                # 取第一条 user/human 作为 human，最后一条 assistant/gpt 作为 gpt（若存在）
                 for m in messages:
-                    if isinstance(m, dict) and str(m.get("role")).lower() == "user":
+                    if isinstance(m, dict) and str(m.get("role")).lower() in ["user", "human"]:
                         if m.get("content"):
                             human = m.get("content")
                             break
                 for m in reversed(messages):
-                    if isinstance(m, dict) and str(m.get("role")).lower() == "assistant":
+                    if isinstance(m, dict) and str(m.get("role")).lower() in ["gpt", "assistant"]:
                         if m.get("content"):
                             gpt = m.get("content")
                             break
                 if not gpt:
                     for m in reversed(messages):
-                        if isinstance(m, dict) and str(m.get("role")).lower() != "user":
+                        if isinstance(m, dict) and str(m.get("role")).lower() not in ["user", "human"]:
                             if m.get("content"):
                                 gpt = m.get("content")
                                 break
 
-            human = _strip_image_placeholder(human)
+            # human = _strip_image_placeholder(human)
             gpt = _strip_image_placeholder(gpt)
 
             problem = human or ""

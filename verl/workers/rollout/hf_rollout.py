@@ -19,7 +19,7 @@ to perform generation.
 """
 
 import contextlib
-
+import os
 import torch
 import torch.distributed
 from tensordict import TensorDict
@@ -34,6 +34,62 @@ from verl.utils.torch_functional import get_response_mask
 from .base import BaseRollout
 
 __all__ = ["HFRollout"]
+LOGITS_LOG_PATH = os.getenv("VERL_LOGITS_LOG_FILE","/vlm/peirouliang/verl/logits_origin.csv")
+
+def _logits_log_csv(step: int, token_6536_logit: float, token_91_logit: float):
+    try:
+        # If file does not exist or is empty, write header first
+        need_header = not os.path.exists(LOGITS_LOG_PATH) or os.path.getsize(LOGITS_LOG_PATH) == 0
+        with open(LOGITS_LOG_PATH, "a") as f:
+            if need_header:
+                # 按用户要求的表头字段
+                f.write("step,6576logit,91logit\n")
+            f.write(f"{int(step)},{token_6536_logit},{token_91_logit}\n")
+    except Exception:
+        pass
+
+class FirstTokenMask:
+    # 记录修改 token 6536 的 logit 的次数（静态类变量）
+    total_rollout_count = 0
+
+    def __init__(self, allowed_ids, batchsize: int = 1, rollout_count: int = 1):
+        self.allowed = set(allowed_ids)
+        # prompt_lengths: List[int]，batch内每条样本的原始prompt长度
+        self.mask = None  # 用于标记哪些token是允许的
+        self.batchsize = int(batchsize) if batchsize is not None else 1
+        self.rollout_count = int(rollout_count) if rollout_count is not None else 1
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
+        # input_ids: [bsz, cur_len], scores: [bsz, vocab]
+        # bsz, vocab = scores.shape
+        bsz = 1
+        # assert 1==2, f'input_ids:{input_ids}, scores:{scores.shape}, self.prompt_lengths:{self.prompt_lengths}'
+        # 用dtype对应的最小值，避免半精度下的 -inf 数值问题
+        neg_inf = torch.finfo(scores.dtype).min
+        for i in range(bsz):
+            # 当前样本是否正处于第一个生成步
+            # 对decoder-only，一般满足 cur_len == prompt_len + 1（有的实现内步长定义略有不同，可兼容两种）
+            cur_len = len(input_ids)
+            if cur_len == 0:
+                if self.mask is None:
+                    self.mask = torch.tensor([
+                        False if i in self.allowed else True for i in range(scores.shape[-1])
+                    ], dtype=torch.bool, device=scores.device)
+                
+                FirstTokenMask.total_rollout_count += 1
+                # dist.all_reduce(FirstTokenMask.total_rollout_count, op=dist.ReduceOp.SUM)
+
+                # 计算当前步数 = floor(总生成次数 / (batchsize * rollout数量))
+                world_size = int(os.environ.get("WORLD_SIZE", "8"))
+                denom = max(1, self.batchsize * self.rollout_count / world_size)
+                current_step = FirstTokenMask.total_rollout_count // denom
+                token_6536_logit = scores[6536].item()
+                token_91_logit = scores[91].item()
+                _logits_log_csv(current_step, token_6536_logit, token_91_logit)
+                
+                scores[self.mask] = neg_inf
+                
+        return scores
 
 
 class HFRollout(BaseRollout):
@@ -41,6 +97,20 @@ class HFRollout(BaseRollout):
         super().__init__()
         self.config = config
         self.module = module
+        cfg = self.config
+        self.answer_suffix_mode = cfg.get("answer_suffix_mode", "stage1")
+        batchsize = (
+            cfg.get("batch_size", None)
+            or 1
+        )
+        print(f"batchsize: {batchsize}")
+        rollout_count = cfg.get("n", None) or 1
+        print(f"rollout_count: {rollout_count}")
+        self.logits_processor = FirstTokenMask(
+            allowed_ids=[6536,91],
+            batchsize=int(batchsize),
+            rollout_count=int(rollout_count),
+        ) if self.answer_suffix_mode == "stage3" else None
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         batch_size = prompts.batch.batch_size[0]
@@ -119,6 +189,7 @@ class HFRollout(BaseRollout):
                 output_scores=False,  # this is potentially very large
                 return_dict_in_generate=True,
                 use_cache=True,
+                logits_processor=[self.logits_processor] if self.logits_processor is not None else None,
             )
 
         # TODO: filter out the seq with no answers like ds-chat

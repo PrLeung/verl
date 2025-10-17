@@ -4,8 +4,8 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export VLLM_USE_V1=0
 
 ENGINE=${1:-vllm}
-# MODEL_NAME=${2:-/vlm/pretrain_models/Qwen/Qwen2.5-VL-7B-Instruct}
-MODEL_NAME=${2:-/vlm/peirouliang/checkpoints/qwen25_vl_7b_rl_cot_40k_vqa_20k_stage2_new_format}
+MODEL_NAME=${2:-/mnt/publicdataset/lmms-lab/LLaVA-OneVision-1.5-4B-Instruct}
+# MODEL_NAME=${2:-/vlm/peirouliang/checkpoints/qwen25_vl_7b_rl_cot_40k_vqa_20k_stage2_new_format}
 DATASET_NAME="mix_llava_cot_40k_llava_next_20k_new_format"
 # STAGE优先顺序：第3个命令行参数 > 现有环境变量STAGE > 默认3
 STAGE=${3:-${STAGE:-3}}
@@ -52,8 +52,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console"]' \
-    trainer.project_name=qwen2_5_vl_7b_mix_cot_40k_vqa_20k_stage${STAGE}_multi10 \
-    trainer.experiment_name=qwen2_5_vl_7b_mix_cot_40k_vqa_20k_stage${STAGE}_multi10 \
+    trainer.project_name=llava_ov_7b_mix_cot_40k_vqa_20k_stage${STAGE} \
+    trainer.experiment_name=llava_ov_7b_mix_cot_40k_vqa_20k_stage${STAGE} \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=10 \

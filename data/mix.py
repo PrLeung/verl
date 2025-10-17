@@ -91,6 +91,25 @@ def write_parquet(df, output_path: str) -> None:
         raise RuntimeError(f"Failed to write parquet to {output_path}: {error}") from error
 
 
+def print_df_preview(name: str, df, num_rows: int = 5) -> None:
+    """Print dataframe columns and a few sample rows safely."""
+    try:
+        import pandas as pd
+        if not isinstance(df, pd.DataFrame):
+            df = pd.DataFrame(df)
+        cols = list(df.columns)
+        print(f"[{name}] columns ({len(cols)}): {cols}")
+        print(f"[{name}] head({num_rows}):")
+        
+        # print(df.head(num_rows).to_string(index=False))
+        # 一列一列进行元素打印
+        for col in df.columns:
+            print(f"[{name}] {col}:")
+            print(df[col].head(num_rows).to_string(index=False))
+    except Exception as e:
+        print(f"Failed to preview {name}: {e}", file=sys.stderr)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -123,18 +142,35 @@ def main() -> None:
     # 读取训练数据
     train_df1, train_reader1 = read_parquet(in1)
     train_df2, train_reader2 = read_parquet(in2)
+    # 打印训练数据的表头与前几行样本
+    print_df_preview("train_df1", train_df1, num_rows=1)
+    print('=========================================================')
+    print_df_preview("train_df2", train_df2, num_rows=1)
+    # assert 1==2
     
     # 读取测试数据
     test_df1, test_reader1 = read_parquet(test1)
     test_df2, test_reader2 = read_parquet(test2)
 
-    import pandas as pd
+    try:
+        import pandas as pd
+    except Exception as e:
+        print(
+            f"Pandas is required for concatenation and shuffling but was not found: {e}.\n"
+            "Please install pandas (e.g., pip install pandas) and try again.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # 合并训练数据
     train_df = pd.concat([train_df1, train_df2], ignore_index=True)
+    # 对训练数据进行shuffle
+    train_df = train_df.sample(frac=1, random_state=42).reset_index(drop=True)
     
     # 直接合并测试数据，不进行采样
     test_df = pd.concat([test_df1, test_df2], ignore_index=True)
+    # 对测试数据进行shuffle
+    test_df = test_df.sample(frac=1, random_state=42).reset_index(drop=True)
 
     # 写出 parquet
     train_output_path = os.path.join(out_dir, train_file_name)

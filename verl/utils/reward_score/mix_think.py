@@ -15,6 +15,7 @@ import re
 
 from mathruler.grader import grade_answer
 
+
 def _extract_answer_tag_content(predict_str: str) -> str | None:
     if not predict_str:
         return None
@@ -72,6 +73,7 @@ def format_reward_think(predict_str: str) -> float:
 
 import re
 
+
 def format_reward_no_think(predict_str: str) -> float:
     if not predict_str:
         return 0.0
@@ -107,10 +109,12 @@ def format_reward_no_think(predict_str: str) -> float:
 
 def format_reward(predict_str: str, data_source: str = None) -> float:
     # 根据data_source决定使用哪种格式验证
-    if data_source == "think":
+    if data_source == "think" or data_source == "llava_cot":
         return format_reward_think(predict_str)
-    else:
+    elif data_source == "think_no" or data_source == "llava_next":
         return format_reward_no_think(predict_str)
+    else:
+        return 0.0
 
 
 def acc_reward(predict_str: str, ground_truth: str) -> float:
@@ -130,12 +134,12 @@ def compute_score(data_source, solution_str, ground_truth, format_score: float =
     
     if stage == "stage1":
         format_score=0.1
-        if data_source == "think":
+        if data_source == "llava_cot":
             solution_str = '<|think|> </|think|><|answer|>'+solution_str
         else:
             solution_str = '<|think_no|></|think_no|><|answer|>'+solution_str
     elif stage == "stage2":
-        if data_source == "think":
+        if data_source == "llava_cot":
             solution_str = '<|think|>'+solution_str
         else:
             solution_str = '<|think_no|>'+solution_str

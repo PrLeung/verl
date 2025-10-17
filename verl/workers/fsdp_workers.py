@@ -75,6 +75,8 @@ from verl.utils.profiler.performance import reduce_timing
 from verl.utils.py_functional import convert_to_regular_types
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.workers.modeling_llavaonevision1_5 import LLaVAOneVision1_5_ForConditionalGeneration
+from verl.workers.configuration_llavaonevision1_5 import Llavaonevision1_5Config
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -252,9 +254,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         # override model kwargs
-        actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
-        )
+        try:
+            actor_model_config = AutoConfig.from_pretrained(
+                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            )
+        except Exception as e:
+            actor_model_config = Llavaonevision1_5Config.from_pretrained(
+                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            )
 
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
@@ -279,10 +286,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
-                actor_module_class = AutoModelForVision2Seq
-            else:
-                actor_module_class = AutoModelForCausalLM
+            # if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
+            #     actor_module_class = AutoModelForVision2Seq
+            # else:
+            #     actor_module_class = AutoModelForCausalLM
+            actor_module_class = LLaVAOneVision1_5_ForConditionalGeneration
 
             actor_module = actor_module_class.from_pretrained(
                 pretrained_model_name_or_path=local_path,

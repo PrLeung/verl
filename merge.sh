@@ -1,4 +1,4 @@
 python -m verl.model_merger merge \
     --backend fsdp \
-    --local_dir /vlm/yinxie/code/checkpoints/RL-qwen25-7b-VL-40kcot-20kvqa-ori \
-    --target_dir /vlm/yinxie/code/checkpoints/RL-qwen25-7b-VL-40kcot-20kvqa-117steps
+    --local_dir /vlm/peirouliang/tmp/llava_ov_1_5_stage1 \
+    --target_dir /vlm/peirouliang/checkpoints/llava_ov_1_5_stage1

@@ -276,11 +276,12 @@ class vLLMRollout(BaseRollout):
         rollout_count = cfg.get("n", None) or 1
         print(f"rollout_count: {rollout_count}")
 
+        self.answer_suffix_mode = cfg.get("answer_suffix_mode", "stage1")
         self.logits_processor = FirstTokenMask(
             allowed_ids=[6536,91],
             batchsize=int(batchsize),
             rollout_count=int(rollout_count),
-        )
+        ) if self.answer_suffix_mode == "stage3" else None
         self.sampling_params = SamplingParams(
             logits_processors=[self.logits_processor], 
             **kwargs)
@@ -396,12 +397,19 @@ class vLLMRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
-            outputs = self.inference_engine.generate(
-                prompts=vllm_inputs,  # because we have already convert it to prompt token id
-                sampling_params=self.sampling_params,
-                lora_request=lora_requests,
-                use_tqdm=False,
-            )
+            if self.logits_processor is not None:
+                outputs = self.inference_engine.generate(
+                    prompts=vllm_inputs,  # because we have already convert it to prompt token id
+                    sampling_params=self.sampling_params,
+                    lora_request=lora_requests,
+                    use_tqdm=False,
+                )
+            else:
+                outputs = self.inference_engine.generate(
+                    prompts=vllm_inputs,  # because we have already convert it to prompt token id
+                    lora_request=lora_requests,
+                    use_tqdm=False,
+                )
 
             # TODO(sgm): disable logprob when recompute_log_prob is enable
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)

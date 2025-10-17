@@ -145,16 +145,16 @@ class RLHFDataset(Dataset):
         self.allowed_first_token_ids = [100,200]
         # answer_suffix_mode 仅接受 {stage1, stage2, stage3}
         raw_mode = str(config.get("answer_suffix_mode", "stage1")).lower()
-        stage_mapping = {
-            "stage1": "answer_format",
-            "stage2": "think_format",
-            "stage3": "auto_think",
-        }
-        if raw_mode not in stage_mapping:
-            raise ValueError(
-                f"Invalid answer_suffix_mode: {raw_mode}. Expected one of 'stage1', 'stage2', 'stage3'."
-            )
-        self.answer_suffix_mode = stage_mapping[raw_mode]
+        # stage_mapping = {
+        #     "stage1": "answer_format",
+        #     "stage2": "think_format",
+        #     "stage3": "auto_think",
+        # }
+        # if raw_mode not in stage_mapping:
+        #     raise ValueError(
+        #         f"Invalid answer_suffix_mode: {raw_mode}. Expected one of 'stage1', 'stage2', 'stage3'."
+        #     )
+        self.answer_suffix_mode = raw_mode
 
         self._download()
         self._read_files_and_tokenize()
@@ -270,8 +270,8 @@ class RLHFDataset(Dataset):
         - "think_format": 基于 data_source 追加 <think>/<no_think>
         - "auto_think": 不追加任何后缀
         """
-        mode = getattr(self, "answer_suffix_mode", "answer_format")
-        if mode == "answer_format":
+        mode = getattr(self, "answer_suffix_mode", "stage1")
+        if mode == "stage1":
             idx = answer.find("<|answer|>") if isinstance(answer, str) else -1
             answer_prefix = (
                 answer[: idx + len("<|answer|>")]
@@ -279,15 +279,14 @@ class RLHFDataset(Dataset):
                 else (answer if isinstance(answer, str) else "")
             )
             return raw_prompt + answer_prefix
-        elif mode == "think_format":
+        elif mode == "stage2":
             data_source = row_dict.get("data_source", "")
-            if isinstance(data_source, str) and "think" in data_source.lower():
+            if isinstance(data_source, str) and ("llava_cot" in data_source.lower() or "think" in data_source.lower()):
                 return raw_prompt + "<|think|>"
             return raw_prompt + "<|think_no|>"
-        elif mode == "auto_think":
+        elif mode == "stage3":
             return raw_prompt + "<|think"
         else:
-            # 保底：未知模式时不追加
             return raw_prompt
 
     def __getitem__(self, item):
@@ -360,22 +359,22 @@ class RLHFDataset(Dataset):
             truncation=self.truncation,
         )
 
-        if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-            from verl.models.transformers.qwen2_vl import get_rope_index
+        # if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
+        #     from verl.models.transformers.qwen2_vl import get_rope_index
 
-            position_ids = [
-                get_rope_index(
-                    self.processor,
-                    input_ids=input_ids[0],
-                    image_grid_thw=model_inputs.get("image_grid_thw"),
-                    video_grid_thw=model_inputs.get("video_grid_thw"),
-                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                    attention_mask=attention_mask[0],
-                )
-            ]  # (1, 3, seq_len)
+        #     position_ids = [
+        #         get_rope_index(
+        #             self.processor,
+        #             input_ids=input_ids[0],
+        #             image_grid_thw=model_inputs.get("image_grid_thw"),
+        #             video_grid_thw=model_inputs.get("video_grid_thw"),
+        #             second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+        #             attention_mask=attention_mask[0],
+        #         )
+        #     ]  # (1, 3, seq_len)
 
-        else:
-            position_ids = compute_position_id_with_mask(attention_mask)
+        # else:
+        position_ids = compute_position_id_with_mask(attention_mask)
 
         row_dict["input_ids"] = input_ids[0]
         row_dict["attention_mask"] = attention_mask[0]
