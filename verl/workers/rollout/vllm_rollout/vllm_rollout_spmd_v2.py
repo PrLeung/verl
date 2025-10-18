@@ -36,12 +36,13 @@ import time
 from contextlib import contextmanager
 from copy import deepcopy
 from types import MethodType
-from typing import Any
+from typing import Any, List
 
 import numpy as np
 import ray
 import torch
 import torch.distributed
+import torch.distributed as dist
 import zmq
 from filelock import FileLock
 from omegaconf import DictConfig, OmegaConf
@@ -54,10 +55,9 @@ from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
 from verl.utils.profiler import GPUMemoryLogger
-from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
+from verl.utils.torch_functional import (get_response_mask,
+                                         pad_2d_list_to_length)
 from verl.workers.rollout.base import BaseRollout
-from typing import List
-import torch.distributed as dist
 
 os.environ["VLLM_USE_V1"] = "0"
 
@@ -281,10 +281,10 @@ class vLLMRollout(BaseRollout):
             allowed_ids=[6536,91],
             batchsize=int(batchsize),
             rollout_count=int(rollout_count),
-        ) if self.answer_suffix_mode == "stage3" else None
+        )
         self.sampling_params = SamplingParams(
             logits_processors=[self.logits_processor], 
-            **kwargs)
+            **kwargs) if self.answer_suffix_mode == "stage4" else SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id
 
@@ -397,16 +397,9 @@ class vLLMRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
-            if self.logits_processor is not None:
-                outputs = self.inference_engine.generate(
+            outputs = self.inference_engine.generate(
                     prompts=vllm_inputs,  # because we have already convert it to prompt token id
                     sampling_params=self.sampling_params,
-                    lora_request=lora_requests,
-                    use_tqdm=False,
-                )
-            else:
-                outputs = self.inference_engine.generate(
-                    prompts=vllm_inputs,  # because we have already convert it to prompt token id
                     lora_request=lora_requests,
                     use_tqdm=False,
                 )

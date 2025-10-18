@@ -140,24 +140,35 @@ def compute_score(data_source, solution_str, ground_truth, format_score: float =
             solution_str = '<|think_no|></|think_no|><|answer|>'+solution_str
     elif stage == "stage2":
         if data_source == "llava_cot":
+            solution_str='<|think|> </|think|>'+solution_str
+        else:
+            solution_str='<|think_no|></|think_no|>'+solution_str
+    elif stage == "stage3":
+        if data_source == "llava_cot":
             solution_str = '<|think|>'+solution_str
         else:
             solution_str = '<|think_no|>'+solution_str
-    elif stage == "stage3":
+    elif stage == "stage4":
         solution_str='<|think'+solution_str
     else:
         solution_str=solution_str
     
     format_reward_score = format_reward(solution_str, data_source)
     acc_reward_score = acc_reward(solution_str, ground_truth)
+    # 在第二阶段，如果未满足严格格式但模型给出了 </|think|> 或 </|think_no|>，给予一半的格式分
+    if stage == "stage3" and format_reward_score == 0.0:
+        # 根据 data_source 判断需要的闭合标签，仅当目标闭合标签出现一次且另一种为 0 时给一半格式分
+        close_think_count = len(re.findall(r"(?i)</\|think\|>", solution_str))
+        close_no_think_count = len(re.findall(r"(?i)</\|think_no\|>", solution_str))
+        if data_source in ("think", "llava_cot"):
+            if close_think_count == 1 and close_no_think_count == 0:
+                format_reward_score = 0.5
+        elif data_source in ("think_no", "llava_next"):
+            if close_no_think_count == 1 and close_think_count == 0:
+                format_reward_score = 0.5
     total_reward_score = (1.0 - format_score) * acc_reward_score + format_score * format_reward_score
     
     return total_reward_score, format_reward_score, acc_reward_score
 
 
-# test_think = "<|think|> I believe the answer is 42. </|think|> <|answer|> 42 </|answer|>"
-# test_no_think = "<|think_no|></|think_no|> <|answer|> 42 </|answer|>"
-# print(format_reward_think(test_think))
-# print(format_reward_no_think(test_no_think))
-# print(_extract_answer_tag_content(test_think))
 

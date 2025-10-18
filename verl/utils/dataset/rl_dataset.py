@@ -143,17 +143,7 @@ class RLHFDataset(Dataset):
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
         self.allowed_first_token_ids = [100,200]
-        # answer_suffix_mode 仅接受 {stage1, stage2, stage3}
         raw_mode = str(config.get("answer_suffix_mode", "stage1")).lower()
-        # stage_mapping = {
-        #     "stage1": "answer_format",
-        #     "stage2": "think_format",
-        #     "stage3": "auto_think",
-        # }
-        # if raw_mode not in stage_mapping:
-        #     raise ValueError(
-        #         f"Invalid answer_suffix_mode: {raw_mode}. Expected one of 'stage1', 'stage2', 'stage3'."
-        #     )
         self.answer_suffix_mode = raw_mode
 
         self._download()
@@ -282,9 +272,26 @@ class RLHFDataset(Dataset):
         elif mode == "stage2":
             data_source = row_dict.get("data_source", "")
             if isinstance(data_source, str) and ("llava_cot" in data_source.lower() or "think" in data_source.lower()):
+                idx = answer.find("</|think|>") if isinstance(answer, str) else -1
+                answer_prefix = (
+                    answer[: idx + len("</|think|>")]
+                    if isinstance(answer, str) and idx != -1
+                    else (answer if isinstance(answer, str) else "")
+                )
+            else:
+                idx = answer.find("</|think_no|>") if isinstance(answer, str) else -1
+                answer_prefix = (
+                    answer[: idx + len("</|think_no|>")]
+                    if isinstance(answer, str) and idx != -1
+                    else (answer if isinstance(answer, str) else "")
+                )
+            return raw_prompt + answer_prefix
+        elif mode == "stage3":
+            data_source = row_dict.get("data_source", "")
+            if isinstance(data_source, str) and ("llava_cot" in data_source.lower() or "think" in data_source.lower()):
                 return raw_prompt + "<|think|>"
             return raw_prompt + "<|think_no|>"
-        elif mode == "stage3":
+        elif mode == "stage4":
             return raw_prompt + "<|think"
         else:
             return raw_prompt
@@ -324,10 +331,6 @@ class RLHFDataset(Dataset):
 
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
-            # if getattr(self, "answer_suffix_mode", "answer_format") == "stage3":
-            #     prompt_lens = attention_mask.sum()
-            #     lp = LogitsProcessorList([FirstTokenMask(self.allowed_first_token_ids, prompt_lens)])
-            # assert 1==2, f'input_ids: {input_ids}, attention_mask: {attention_mask}, model_inputs: {model_inputs}'
 
             if "second_per_grid_ts" in model_inputs:
                 model_inputs.pop("second_per_grid_ts")

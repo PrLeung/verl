@@ -110,7 +110,7 @@ class HFRollout(BaseRollout):
             allowed_ids=[6536,91],
             batchsize=int(batchsize),
             rollout_count=int(rollout_count),
-        ) if self.answer_suffix_mode == "stage3" else None
+        ) if self.answer_suffix_mode == "stage4" else None
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         batch_size = prompts.batch.batch_size[0]
