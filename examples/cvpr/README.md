@@ -1,0 +1,82 @@
+# Qwen2.5-VL Three-Stage Pipeline Guide
+
+![Three-stage pipeline](../../figures/framework.png)
+
+
+---
+
+## 🔧 0. Before You Start
+
+* Configure `PROJECT_ROOT`, `DATA_DIR`, `WANDB_*`, `CUDA_VISIBLE_DEVICES`, etc.
+* Ensure Ray Dashboard is reachable at **[http://127.0.0.1:8265](http://127.0.0.1:8265)**.
+* Replace `MODEL_NAME=/path/to/your/model-or-checkpoint` with your initial model.
+* Update `trainer.project_name` and `trainer.experiment_name` — these define:
+
+  * `outputs/<project_name>/<experiment_name>/checkpoints/`
+
+---
+
+## 🚀 1. Stage 1 — `qwen2.5-vl-fp16-stage1.sh`
+
+```bash
+bash examples/cvpr/qwen2.5-vl-fp16-stage1.sh vllm /path/to/base-or-sft-ckpt
+```
+
+* Runs GRPO on `DATASET_NAME=mix_think_no_50k_think_41k`.
+* Ray outputs multiple `global_step_xxx` checkpoints.
+* Record the checkpoint marked as **best**.
+
+---
+
+## 🚀 2. Stage 1_1 — `qwen2.5-vl-fp16-stage1_1.sh`
+
+```bash
+bash examples/cvpr/qwen2.5-vl-fp16-stage1_1.sh vllm /path/to/stage1-best
+```
+
+* Input the **best checkpoint** from Stage 1.
+* Trains with `answer_suffix_mode=stage1_1`.
+* Produces another **best** checkpoint.
+
+---
+
+## 🚀 3. Stage 2 — `qwen2.5-vl-fp16-stage2.sh`
+
+```bash
+bash examples/cvpr/qwen2.5-vl-fp16-stage2.sh vllm /path/to/stage1_1-best
+```
+
+* Uses the same dataset.
+* Switches to `answer_suffix_mode=stage2`.
+* Produces the **final best model** for inference.
+
+---
+
+## 📌 4. Picking the Checkpoint Between Stages
+
+* Check Ray logs or:
+
+  * `outputs/<project_name>/<experiment_name>/checkpoints/`
+* Choose the checkpoint you want to continue from (e.g., by `global_step`).
+* Pass it to the next script as `MODEL_NAME`.
+
+---
+
+## ⚙️ 5. Customizing the Number of Skipped Steps
+
+All scripts currently use:
+
+```
+trainer.start_from_global_step=250
+trainer.skip_steps_before_start=250
+```
+
+To change them:
+
+* Edit the scripts directly and modify the numbers.
+* Or create local variants such as `*_custom.sh`.
+* Keep both values synchronized to ensure correct logging.
+
+---
+
+Run the stages sequentially: **Stage1 → Stage1_1 → Stage2**, always feeding the previous stage’s best checkpoint into the next step to complete the Qwen2.5-VL FP16 three-stage workflow.

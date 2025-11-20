@@ -3,33 +3,39 @@ set -x
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export VLLM_USE_V1=0
 
-# W&B 配置 - 用于查看训练曲线
-export WANDB_API_KEY=db319cffcb5dd47c65ab28aa4e82faebf32aabf8    # 替换为您的 W&B API Key
-export WANDB_ENTITY=prleung-ustc     # 替换为您的 W&B 用户名或团队名
-export WANDB_PROJECT=qwen2_5_vl_7b_virl_exp3        # W&B 项目名称
+# W&B 配置 - 用于查看训练曲线（请填写您自己的信息）
+export WANDB_API_KEY=    # 替换为您的 W&B API Key
+export WANDB_ENTITY=     # 替换为您的 W&B 用户名或团队名
+export WANDB_PROJECT=        # W&B 项目名称
 
 ENGINE=${1:-vllm}
-# MODEL_NAME=${2:-/vlm/pretrain_models/Qwen2.5-VL-7B-Instruct}
-# MODEL_NAME=${2:-/vlm/peirouliang/checkpoints_qwen_new/stage1_12steps}
-MODEL_NAME=${2:-/vlm/chunshengwu/models/glint/auto_think/qwen_exp3/global_step_250_merge}
-DATASET_NAME="mix_think_no_50k_think_41k"
-# DATASET_NAME="mix_llava_cot_40k_llava_next_20k_new_format"
+MODEL_NAME=${2:-/path/to/your/model-or-checkpoint}
 
-STAGE=2
+DATASET_NAME="mix_think_no_50k_think_41k"
+
+STAGE=1
+
+PROJECT_ROOT=${PROJECT_ROOT:-/path/to/verl_project}
+DATA_DIR=${DATA_DIR:-${PROJECT_ROOT}/data}
+
+if [[ -z "$MODEL_NAME" ]]; then
+    echo "请将 MODEL_NAME 设置为您的模型权重路径，或在运行脚本时通过第二个参数传入。" >&2
+    exit 1
+fi
 
 max_prompt_length=$((1024 * 12))
 max_response_length=$((1024 * 4))
 STAGE1_1_STEP_THRESHOLD=35
 STAGE2_STEP_THRESHOLD=20
-# export VERL_LOGITS_LOG_FILE=/vlm/peirouliang/verl/logits_multi10.csv
+
 ray job submit --address="http://127.0.0.1:8265" \
     --runtime-env=verl/trainer/runtime_env.yaml \
     --no-wait \
     -- \
     python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/vlm/peirouliang/verl_new/data/$DATASET_NAME/train.parquet \
-    data.val_files=/vlm/peirouliang/verl_new/data/$DATASET_NAME/test.parquet \
+    data.train_files=${DATA_DIR}/$DATASET_NAME/train.parquet \
+    data.val_files=${DATA_DIR}/$DATASET_NAME/test.parquet \
     data.train_batch_size=64 \
     data.max_prompt_length=$max_prompt_length \
     data.max_response_length=$max_response_length \
@@ -69,8 +75,8 @@ ray job submit --address="http://127.0.0.1:8265" \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name=qwen2_5_vl_7b_virl_exp3_stage${STAGE} \
-    trainer.experiment_name=r_0.5_w_100_old_reward_skip \
+    trainer.project_name= \ # TODO: 替换为您的项目名称
+    trainer.experiment_name= \ # TODO: 替换为您的实验名称
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=2 \
     trainer.save_freq=10 \
