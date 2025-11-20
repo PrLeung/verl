@@ -78,3 +78,12 @@ To change them:
 ---
 
 Run the stages sequentially: **Stage1 → Stage1_1 → Stage2**, always feeding the previous stage’s best checkpoint into the next step to complete the Qwen2.5-VL FP16 three-stage workflow.
+
+## Citation
+```bibtex
+@article{sheng2024hybridflow,
+  title   = {HybridFlow: A Flexible and Efficient RLHF Framework},
+  author  = {Guangming Sheng and Chi Zhang and Zilingfeng Ye and Xibin Wu and Wang Zhang and Ru Zhang and Yanghua Peng and Haibin Lin and Chuan Wu},
+  year    = {2024},
+  journal = {arXiv preprint arXiv: 2409.19256}
+}
