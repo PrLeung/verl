@@ -19,6 +19,8 @@ STAGE=2
 
 max_prompt_length=$((1024 * 12))
 max_response_length=$((1024 * 4))
+STAGE1_1_STEP_THRESHOLD=35
+STAGE2_STEP_THRESHOLD=20
 # export VERL_LOGITS_LOG_FILE=/vlm/peirouliang/verl/logits_multi10.csv
 ray job submit --address="http://127.0.0.1:8265" \
     --runtime-env=verl/trainer/runtime_env.yaml \
@@ -51,6 +53,8 @@ ray job submit --address="http://127.0.0.1:8265" \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=20 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.answer_suffix_mode=stage${STAGE} \
+    actor_rollout_ref.rollout.stage1_1_step_threshold=$STAGE1_1_STEP_THRESHOLD \
+    actor_rollout_ref.rollout.stage2_step_threshold=$STAGE2_STEP_THRESHOLD \
     actor_rollout_ref.rollout.name=$ENGINE \
     actor_rollout_ref.rollout.dtype=float16 \
     actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \

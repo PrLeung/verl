@@ -38,6 +38,9 @@ enforce_eager: True
 free_cache_engine: True
 
 answer_suffix_mode: null
+# Stage gating阈值
+stage1_1_step_threshold: 35
+stage2_step_threshold: 20
 # TP size for rollout. Not effective for hf
 tensor_model_parallel_size: 2
 

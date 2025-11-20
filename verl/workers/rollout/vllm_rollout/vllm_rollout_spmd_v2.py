@@ -69,21 +69,6 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 STAGE1_1_STEP_THRESHOLD = 35
 STAGE2_STEP_THRESHOLD = 20
 
-# # Write logits to CSV file helper
-# LOGITS_LOG_PATH = os.getenv("VERL_LOGITS_LOG_FILE","/vlm/peirouliang/verl/logits_origin.csv")
-
-# def _logits_log_csv(step: int, token_6536_logit: float, token_91_logit: float):
-#     try:
-#         # If file does not exist or is empty, write header first
-#         need_header = not os.path.exists(LOGITS_LOG_PATH) or os.path.getsize(LOGITS_LOG_PATH) == 0
-#         with open(LOGITS_LOG_PATH, "a") as f:
-#             if need_header:
-#                 # 按用户要求的表头字段
-#                 f.write("step,6576logit,91logit\n")
-#             f.write(f"{int(step)},{token_6536_logit},{token_91_logit}\n")
-#     except Exception:
-#         pass
-
 # TODO
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here
@@ -103,7 +88,14 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 class FirstTokenMask:
     # 记录修改 token 6536 的 logit 的次数（静态类变量）
     total_rollout_count = 0
-    def __init__(self, batchsize: int = 1, rollout_count: int = 1, stage: str = "stage2"):
+    def __init__(
+        self,
+        batchsize: int = 1,
+        rollout_count: int = 1,
+        stage: str = "stage2",
+        stage1_1_step_threshold: int = STAGE1_1_STEP_THRESHOLD,
+        stage2_step_threshold: int = STAGE2_STEP_THRESHOLD,
+    ):
         # prompt_lengths: List[int]，batch内每条样本的原始prompt长度
         self.mask = None  # 用于标记哪些token是允许的
         self.batchsize = int(batchsize) if batchsize is not None else 1
@@ -112,6 +104,8 @@ class FirstTokenMask:
         self.stage = stage  # 存储stage信息
         self.global_steps = None  # 存储全局训练步数
         self.skipped_steps_offset = 0  # 跳过的前置步数偏移量（仅用于无global_steps回退计算）
+        self.stage1_1_step_threshold = int(stage1_1_step_threshold)
+        self.stage2_step_threshold = int(stage2_step_threshold)
 
     def set_data_sources(self, data_sources):
         """设置当前batch的data_source信息"""
@@ -159,7 +153,7 @@ class FirstTokenMask:
                 # print("data_source: ", data_source, "current_step: ", current_step, "self.stage: ", self.stage)
                 if data_source.lower() == "think":
                     if self.stage == "stage2":
-                        if current_step <= STAGE2_STEP_THRESHOLD:
+                        if current_step <= self.stage2_step_threshold:
                             allowed_now = {91} if random_num <= 0.5 else {6536}
                         else:
                             allowed_now = {6536, 91}
@@ -173,7 +167,7 @@ class FirstTokenMask:
                         return scores
                 elif data_source.lower() == "think_no" and self.stage == "stage1_1":
                     # stage1_1 + think_no：前2步只放行<token (token ID: 27)
-                    if current_step <= STAGE1_1_STEP_THRESHOLD:
+                    if current_step <= self.stage1_1_step_threshold:
                         # 70% 概率只放行 token 27，30% 概率不做 mask
                         if random_num <= 0.7:
                             allowed_now = {27}
@@ -182,7 +176,7 @@ class FirstTokenMask:
                     else:
                         return scores
                 elif data_source.lower() == "think_no" and self.stage == "stage2": 
-                    if current_step <= STAGE2_STEP_THRESHOLD:
+                    if current_step <= self.stage2_step_threshold:
                         # 30% 概率抽样到 91，70% 概率抽样到 6536
                         allowed_now = {6536} if random_num <= 0.5 else {91}
                     else:
@@ -193,7 +187,7 @@ class FirstTokenMask:
                     device=scores.device,
                 )
                 scores[mask] = neg_inf
-            elif cur_len == 1 and self.stage == "stage1_1" and data_source.lower() == "think_no" and current_step <= STAGE1_1_STEP_THRESHOLD:
+            elif cur_len == 1 and self.stage == "stage1_1" and data_source.lower() == "think_no" and current_step <= self.stage1_1_step_threshold:
                 # 70% 概率只放行 token 14，30% 概率不做 mask
                 if random_num <= 0.7:
                     allowed_now = {14}
@@ -205,7 +199,7 @@ class FirstTokenMask:
                     scores[mask] = neg_inf
                 else:
                     return scores
-            elif cur_len == 2 and self.stage == "stage1_1" and data_source.lower() == "think_no" and current_step <= STAGE1_1_STEP_THRESHOLD:
+            elif cur_len == 2 and self.stage == "stage1_1" and data_source.lower() == "think_no" and current_step <= self.stage1_1_step_threshold:
                 # 70% 概率只放行 token 91，30% 概率不做 mask
                 if random_num <= 0.7:
                     allowed_now = {91}
@@ -362,6 +356,8 @@ class vLLMRollout(BaseRollout):
             batchsize=int(batchsize),
             rollout_count=int(rollout_count),
             stage=self.answer_suffix_mode,
+            stage1_1_step_threshold=cfg.get("stage1_1_step_threshold", STAGE1_1_STEP_THRESHOLD),
+            stage2_step_threshold=cfg.get("stage2_step_threshold", STAGE2_STEP_THRESHOLD),
         )
         self.sampling_params = SamplingParams(
             logits_processors=[self.logits_processor], 

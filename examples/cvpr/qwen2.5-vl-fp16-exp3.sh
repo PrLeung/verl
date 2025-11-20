@@ -13,9 +13,8 @@ ENGINE=${1:-vllm}
 # MODEL_NAME=${2:-/vlm/peirouliang/checkpoints_qwen_new/stage1_12steps}
 MODEL_NAME=${2:-/vlm/chunshengwu/models/glint/auto_think/qwen_exp3/global_step_250_merge}
 DATASET_NAME="mix_think_no_50k_think_41k"
-# DATASET_NAME="mix_llava_cot_40k_llava_next_20k_new_format"
 
-STAGE=1_1
+STAGE=1
 
 max_prompt_length=$((1024 * 12))
 max_response_length=$((1024 * 4))
