@@ -2,7 +2,7 @@
 ## 📝 Abstract
 Vision-Language Models (VLMs) excel in complex reasoning tasks but are often constrained by the issue of overthinking, limiting their applicability in real-world scenarios. Existing adaptive reasoning approaches face critical challenges, including data scarcity, catastrophic forgetting, and sensitivity to prompts. To address these limitations, we propose GRPO-Driven Adaptive Reasoning for VLMs (GAR), a novel reinforcement learning (RL)-based adaptive reasoning framework. GAR enables efficient reasoning in VLMs through a two-stage training process. In the first stage, the model generates outputs adhering to the formats of various reasoning paradigms via a multi-constraint output mechanism. In the second stage, constraints on first-token generation compel the model to adaptively select reasoning strategies based on task type and complexity. Experimental results show that GAR significantly reduces reasoning overhead while maintaining or surpassing the accuracy of existing methods, achieving a better balance between efficiency and accuracy. We will release the code, datasets, and model weights for reproducibility.
 
-![Three-stage pipeline](../../figures/framework.png)
+![Three-stage pipeline](figures/framework.png)
 
 
 ---
