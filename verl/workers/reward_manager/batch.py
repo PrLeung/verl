@@ -18,7 +18,6 @@ import torch
 
 from verl import DataProto
 from verl.workers.reward_manager import register
-from verl.workers.reward_manager.test_format import format_reward
 
 
 @register("batch")
@@ -67,10 +66,7 @@ class BatchRewardManager:
             extra_infos=extras,
             **self.reward_kwargs,
         )
-        format_scores = [format_reward(predict_str=response_str
-                ) for response_str in responses_str]
-        
-        return scores, format_scores
+        return scores
 
     def __call__(self, data: DataProto, return_dict=False):
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
@@ -88,7 +84,7 @@ class BatchRewardManager:
         valid_response_lengths = attention_mask[:, prompt_len:].sum(dim=-1)
         data_sources = data.non_tensor_batch[self.reward_fn_key]
 
-        scores, format_scores = self.verify(data)
+        scores, format_scores, acc_scores = self.verify(data)
         rewards = []
         format_rewards = []
         already_printed = {}
@@ -120,9 +116,14 @@ class BatchRewardManager:
                 print("[ground_truth]", ground_truth)
                 print("[score]", scores[i])
                 print("[format_score]", format_scores[i])
+                print("[acc_score]", acc_scores[i])
                 already_printed[data_source] = already_printed.get(data_source, 0) + 1
 
         data.batch["acc"] = torch.tensor(rewards, dtype=torch.float32, device=prompt_ids.device)
+
+        # expose extra components like naive manager does so training loop can log them
+        reward_extra_info["format_score"].extend(format_scores)
+        reward_extra_info["acc_score"].extend(acc_scores)
 
         if return_dict:
             return {"reward_tensor": reward_tensor, "reward_extra_info": reward_extra_info}

@@ -27,19 +27,13 @@ from tqdm import tqdm
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss
-from verl.trainer.ppo.metric_utils import (
-    compute_data_metrics,
-    compute_throughout_metrics,
-    compute_timing_metrics,
-    reduce_metrics,
-)
-from verl.trainer.ppo.ray_trainer import (
-    AdvantageEstimator,
-    RayPPOTrainer,
-    apply_kl_penalty,
-    compute_advantage,
-    compute_response_mask,
-)
+from verl.trainer.ppo.metric_utils import (compute_data_metrics,
+                                           compute_throughout_metrics,
+                                           compute_timing_metrics,
+                                           reduce_metrics)
+from verl.trainer.ppo.ray_trainer import (AdvantageEstimator, RayPPOTrainer,
+                                          apply_kl_penalty, compute_advantage,
+                                          compute_response_mask)
 from verl.utils.profiler import marked_timer
 
 
@@ -126,6 +120,11 @@ class RayDAPOTrainer(RayPPOTrainer):
                         batch_keys=["input_ids", "attention_mask", "position_ids"],
                         non_tensor_batch_keys=["raw_prompt_ids"],
                     )
+                # pass global_steps and skip_steps_before_start to trace (before repeat to ensure it's preserved)
+                gen_batch.meta_info["global_steps"] = self.global_steps
+                skip_steps_before_start = int(self.config.trainer.get("skip_steps_before_start", 0) or 0)
+                if skip_steps_before_start:
+                    gen_batch.meta_info["skip_steps_before_start"] = skip_steps_before_start
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 is_last_step = self.gen_steps >= self.total_training_steps

@@ -37,6 +37,7 @@ enforce_eager: True
 # Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
 free_cache_engine: True
 
+answer_suffix_mode: null
 # TP size for rollout. Not effective for hf
 tensor_model_parallel_size: 2
 

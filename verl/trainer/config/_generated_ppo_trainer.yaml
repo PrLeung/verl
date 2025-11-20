@@ -14,7 +14,7 @@ actor_rollout_ref:
     ppo_max_token_len_per_gpu: 16384
     clip_ratio: 0.2
     clip_ratio_low: 0.2
-    clip_ratio_high: 0.2
+    clip_ratio_high: 0.28
     policy_loss:
       _target_: verl.workers.config.PolicyLossConfig
       loss_mode: vanilla

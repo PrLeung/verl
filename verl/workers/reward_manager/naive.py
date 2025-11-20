@@ -19,7 +19,6 @@ import torch
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
-from verl.workers.reward_manager.test_format import format_reward
 
 
 @register("naive")
@@ -44,7 +43,7 @@ class NaiveRewardManager:
         self.reward_fn_key = reward_fn_key  # Store the key for accessing the data source
         self.stage = stage
 
-    def __call__(self, data: DataProto, return_dict=False):
+    def __call__(self, data: DataProto, return_dict=True):
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
@@ -98,6 +97,9 @@ class NaiveRewardManager:
                     reward_extra_info[key].append(value)
             else:
                 reward = score
+                # Also record separate components for analysis
+                reward_extra_info["format_score"].append(format_score)
+                reward_extra_info["acc_score"].append(acc_score)
 
             reward_tensor[i, valid_response_length - 1] = reward
 

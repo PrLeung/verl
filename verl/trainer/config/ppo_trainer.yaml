@@ -300,6 +300,15 @@ trainer:
   # Validation frequency (in training iterations)
   test_freq: -1
 
+  # Initialize the global step counter without loading from checkpoint.
+  # This only affects logging/progress/checkpoint step numbers, not the dataloader position.
+  start_from_global_step: null
+
+  # Skip a number of training steps by advancing the train dataloader before training starts.
+  # Useful when you only have an HF model (no PPO checkpoint) but want to start from later data.
+  # Note: This does not restore optimizer/scheduler states and is not equivalent to true resume.
+  skip_steps_before_start: 0
+
   # Number of iterations to warm up the critic before updating policy
   critic_warmup: 0
 

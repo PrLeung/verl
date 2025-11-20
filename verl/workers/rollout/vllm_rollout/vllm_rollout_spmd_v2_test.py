@@ -39,6 +39,7 @@ from types import MethodType
 from typing import Any, List
 
 import numpy as np
+from pydantic_core.core_schema import NoneSchema
 import ray
 import torch
 import torch.distributed
@@ -46,7 +47,6 @@ import torch.distributed as dist
 import zmq
 from filelock import FileLock
 from omegaconf import DictConfig, OmegaConf
-from pydantic_core.core_schema import NoneSchema
 from tensordict import TensorDict
 from vllm import LLM, SamplingParams
 from vllm.distributed import parallel_state as vllm_ps
@@ -64,10 +64,6 @@ os.environ["VLLM_USE_V1"] = "0"
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-# Stage step 配置变量
-STAGE1_1_STEP_THRESHOLD = 35
-STAGE2_STEP_THRESHOLD = 20
 
 # # Write logits to CSV file helper
 # LOGITS_LOG_PATH = os.getenv("VERL_LOGITS_LOG_FILE","/vlm/peirouliang/verl/logits_origin.csv")
@@ -110,28 +106,16 @@ class FirstTokenMask:
         self.rollout_count = int(rollout_count) if rollout_count is not None else 1
         self.data_sources = None  # 存储当前batch的data_source信息
         self.stage = stage  # 存储stage信息
-        self.global_steps = None  # 存储全局训练步数
-        self.skipped_steps_offset = 0  # 跳过的前置步数偏移量（仅用于无global_steps回退计算）
 
     def set_data_sources(self, data_sources):
         """设置当前batch的data_source信息"""
         self.data_sources = data_sources
-    
-    def set_global_steps(self, global_steps):
-        """设置全局训练步数"""
-        self.global_steps = global_steps
-    
-    def set_skipped_steps_offset(self, skipped_steps_offset: int):
-        """设置在回退计数时需要减去的跳过步数偏移"""
-        try:
-            self.skipped_steps_offset = int(skipped_steps_offset or 0)
-        except Exception:
-            self.skipped_steps_offset = 0
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor):
-        # input_ids 可能是 tuple、list 或 tensor，scores: [bsz, vocab]
-        # 处理 input_ids 的不同类型
-        bsz=1
+        # input_ids: [bsz, cur_len], scores: [bsz, vocab]
+        assert 2 == 1,f'input_ids.shape:{input_ids}'
+        bsz = 1
+        # assert 1==2, f'input_ids:{input_ids}, scores:{scores.shape}, self.prompt_lengths:{self.prompt_lengths}'
         # 用dtype对应的最小值，避免半精度下的 -inf 数值问题
         neg_inf = torch.finfo(scores.dtype).min
         
@@ -140,12 +124,9 @@ class FirstTokenMask:
             if cur_len == 0:
                 FirstTokenMask.total_rollout_count += 1
 
-                # 回退到基于total_rollout_count的计算方式
             world_size = int(os.environ.get("WORLD_SIZE", "8"))
             denom = max(1, self.batchsize * self.rollout_count / world_size)
             current_step = FirstTokenMask.total_rollout_count // denom
-
-            # print(f"current_step: {current_step}, global_steps: {self.global_steps}")
             # 检查当前样本的data_source
             data_source = None
             if (self.data_sources is not None and len(self.data_sources) > i):
@@ -155,36 +136,33 @@ class FirstTokenMask:
             random_num=torch.rand((), device=scores.device).item()
             
             if cur_len == 0:
+                # assert 1==3, f'current_step: {current_step}, self.stage: {self.stage}'
                 # 根据data_source决定是否应用mask
                 # print("data_source: ", data_source, "current_step: ", current_step, "self.stage: ", self.stage)
-                if data_source.lower() == "think":
-                    if self.stage == "stage2":
-                        if current_step <= STAGE2_STEP_THRESHOLD:
-                            allowed_now = {91} if random_num <= 0.5 else {6536}
-                        else:
-                            allowed_now = {6536, 91}
-                        mask = torch.tensor(
-                            [False if token_id in allowed_now else True for token_id in range(scores.shape[-1])],
-                            dtype=torch.bool,
-                            device=scores.device,
-                        )
-                        scores[mask] = neg_inf
-                    else:
-                        return scores
-                elif data_source.lower() == "think_no" and self.stage == "stage1_1":
+                if isinstance(data_source, str) and data_source.lower() == "think":
+                    # think类型：不应用任何mask，让模型自由生成
+                    return scores
+                elif (isinstance(data_source, str) and data_source.lower() == "think_no" and 
+                      hasattr(self, 'stage') and self.stage == "stage1_1"):
+                    # assert 1==3, f'current_step: {current_step}, self.stage: {self.stage}'
                     # stage1_1 + think_no：前2步只放行<token (token ID: 27)
-                    if current_step <= STAGE1_1_STEP_THRESHOLD:
+                    print(f"current_step: {current_step}")
+                    if current_step <= 10000000000:
                         # 70% 概率只放行 token 27，30% 概率不做 mask
-                        if random_num <= 0.7:
-                            allowed_now = {27}
-                        else:
-                            return scores
+                        # if random_num <= 0.7:
+                        allowed_now = {27}
+                        # else:
+                            # return scores
                     else:
                         return scores
-                elif data_source.lower() == "think_no" and self.stage == "stage2": 
-                    if current_step <= STAGE2_STEP_THRESHOLD:
+                elif (isinstance(data_source, str) and data_source.lower() == "think_no" and 
+                      hasattr(self, 'stage') and self.stage == "stage2"):
+                    # 其他情况：按照原来的逻辑
+                    
+                    if current_step <= 10:
                         # 30% 概率抽样到 91，70% 概率抽样到 6536
-                        allowed_now = {6536} if random_num <= 0.5 else {91}
+                        rand_choice = 91 if torch.rand((), device=scores.device).item() <=0.3 else 6536
+                        allowed_now = {int(rand_choice)}
                     else:
                         allowed_now = {6536, 91}
                 mask = torch.tensor(
@@ -193,30 +171,44 @@ class FirstTokenMask:
                     device=scores.device,
                 )
                 scores[mask] = neg_inf
-            elif cur_len == 1 and self.stage == "stage1_1" and data_source.lower() == "think_no" and current_step <= STAGE1_1_STEP_THRESHOLD:
+            elif cur_len == 1 and self.stage == "stage1_1" and data_source.lower() == "think_no":
+                allowed_now = {27}
+                mask = torch.tensor(
+                    [False if token_id in allowed_now else True for token_id in range(scores.shape[-1])],
+                    dtype=torch.bool,
+                    device=scores.device,
+                )
+                scores[mask] = neg_inf
                 # 70% 概率只放行 token 14，30% 概率不做 mask
-                if random_num <= 0.7:
-                    allowed_now = {14}
-                    mask = torch.tensor(
-                            [False if token_id in allowed_now else True for token_id in range(scores.shape[-1])],
-                            dtype=torch.bool,
-                            device=scores.device,
-                        )
-                    scores[mask] = neg_inf
-                else:
-                    return scores
-            elif cur_len == 2 and self.stage == "stage1_1" and data_source.lower() == "think_no" and current_step <= STAGE1_1_STEP_THRESHOLD:
+                # if random_num <= 0.7:
+                #     allowed_now = {14}
+                #     mask = torch.tensor(
+                #             [False if token_id in allowed_now else True for token_id in range(scores.shape[-1])],
+                #             dtype=torch.bool,
+                #             device=scores.device,
+                #         )
+                #     scores[mask] = neg_inf
+                # else:
+                #     return scores
+            elif cur_len == 2 and self.stage == "stage1_1" and data_source.lower() == "think_no" :
+                allowed_now = {27}
+                mask = torch.tensor(
+                    [False if token_id in allowed_now else True for token_id in range(scores.shape[-1])],
+                    dtype=torch.bool,
+                    device=scores.device,
+                )
+                scores[mask] = neg_inf
                 # 70% 概率只放行 token 91，30% 概率不做 mask
-                if random_num <= 0.7:
-                    allowed_now = {91}
-                    mask = torch.tensor(
-                            [False if token_id in allowed_now else True for token_id in range(scores.shape[-1])],
-                            dtype=torch.bool,
-                            device=scores.device,
-                        )
-                    scores[mask] = neg_inf
-                else:
-                    return scores
+                # if random_num <= 0.7:
+                #     allowed_now = {91}
+                #     mask = torch.tensor(
+                #             [False if token_id in allowed_now else True for token_id in range(scores.shape[-1])],
+                #             dtype=torch.bool,
+                #             device=scores.device,
+                #         )
+                #     scores[mask] = neg_inf
+                # else:
+                #     return scores
         return scores
 
 class vLLMRollout(BaseRollout):
@@ -353,12 +345,13 @@ class vLLMRollout(BaseRollout):
             cfg.get("batch_size", None)
             or 1
         )
-        # print(f"batchsize: {batchsize}")
+        print(f"batchsize: {batchsize}")
         rollout_count = cfg.get("n", None) or 1
-        # print(f"rollout_count: {rollout_count}")
+        print(f"rollout_count: {rollout_count}")
 
         self.answer_suffix_mode = cfg.get("answer_suffix_mode", "stage2")
         self.logits_processor = FirstTokenMask(
+            # allowed_ids=[6536,91],
             batchsize=int(batchsize),
             rollout_count=int(rollout_count),
             stage=self.answer_suffix_mode,
@@ -484,22 +477,6 @@ class vLLMRollout(BaseRollout):
                 lora_requests = [
                     LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")
                 ] * batch_size
-
-        # 设置全局训练步数到logits_processor
-        if hasattr(self, 'logits_processor') and self.logits_processor is not None:
-            global_steps = prompts.meta_info.get("global_steps", None)
-            if global_steps is not None:
-                self.logits_processor.set_global_steps(global_steps)
-            # 传入可能存在的“跳过前置步数”信息，用于无global_steps的回退计数
-            skipped_steps = (
-                prompts.meta_info.get("skipped_steps_before_start", None)
-                or prompts.meta_info.get("skip_steps_before_start", None)
-            )
-            if skipped_steps is not None:
-                try:
-                    self.logits_processor.set_skipped_steps_offset(int(skipped_steps))
-                except Exception:
-                    self.logits_processor.set_skipped_steps_offset(0)
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):

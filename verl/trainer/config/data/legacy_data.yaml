@@ -66,6 +66,7 @@ filter_overlong_prompts_workers: 1
 # Options: 'error', 'left', 'right', 'middle'. Default is 'error'.
 truncation: error
 
+model_type: null
 # The field in the multi-modal dataset where the image is located. Default is 'images'.
 image_key: images
 

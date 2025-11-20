@@ -70,7 +70,23 @@ def format_reward_think(predict_str: str) -> float:
         and not any_no_think
     )
 
-    return 1.0 if only_once else 0.0
+    if not only_once:
+        return 0.0
+
+    # 提取<|think|>和</|think|>中间的内容
+    think_pattern = re.compile(r"<\|think\|>\s*(.*?)\s*</\|think\|>", re.DOTALL | re.IGNORECASE)
+    think_match = think_pattern.search(predict_str)
+    
+    if think_match:
+        think_content = think_match.group(1).strip()
+        word_count = len(think_content.split()) if think_content else 0
+        # 要求模型的思考内容最少是10个单词
+        if word_count >= 10:
+            return 1.0
+        else:
+            return 0.0
+    else:
+        return 0.0
 
 import re
 
@@ -177,7 +193,6 @@ def compute_score(data_source, solution_str, ground_truth, format_score: float =
         format_score=0.3
         solution_str='<|think'+solution_str
     else:
-        format_score=0.3
         solution_str=solution_str
     
     format_reward_score = format_reward(solution_str, data_source, stage)

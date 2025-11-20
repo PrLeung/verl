@@ -15,6 +15,7 @@ import os
 from importlib.metadata import PackageNotFoundError, version
 
 from .vllm_rollout_spmd_v2 import vLLMAsyncRollout, vLLMRollout  # noqa: F401
+# from .vllm_rollout_spmd_v2_test import vLLMAsyncRollout, vLLMRollout  # noqa: F401
 
 
 def get_version(pkg):

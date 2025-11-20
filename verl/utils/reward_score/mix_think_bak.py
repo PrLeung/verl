@@ -174,10 +174,9 @@ def compute_score(data_source, solution_str, ground_truth, format_score: float =
         else:
             solution_str = '<|think_no|>'+solution_str
     elif stage == "stage2":
-        format_score=0.3
+        format_score=0.4
         solution_str='<|think'+solution_str
     else:
-        format_score=0.3
         solution_str=solution_str
     
     format_reward_score = format_reward(solution_str, data_source, stage)

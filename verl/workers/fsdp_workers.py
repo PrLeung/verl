@@ -286,11 +286,26 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            # if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
-            #     actor_module_class = AutoModelForVision2Seq
-            # else:
-            #     actor_module_class = AutoModelForCausalLM
-            actor_module_class = LLaVAOneVision1_5_ForConditionalGeneration
+            architectures_in_config = getattr(actor_model_config, "architectures", []) or []
+            model_type_in_config = getattr(actor_model_config, "model_type", None)
+
+            is_llava_ov_1_5 = False
+            # Prefer explicit architectures field if available
+            for arch_name in architectures_in_config:
+                if isinstance(arch_name, str) and arch_name.lower() == "llavaonevision1_5_forconditionalgeneration":
+                    is_llava_ov_1_5 = True
+                    break
+            # Fallback to model_type
+            if not is_llava_ov_1_5 and isinstance(model_type_in_config, str):
+                is_llava_ov_1_5 = model_type_in_config.lower() == "llava_ov_1_5"
+
+            if is_llava_ov_1_5:
+                actor_module_class = LLaVAOneVision1_5_ForConditionalGeneration
+            else:
+                if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
+                    actor_module_class = AutoModelForVision2Seq
+                else:
+                    actor_module_class = AutoModelForCausalLM
 
             actor_module = actor_module_class.from_pretrained(
                 pretrained_model_name_or_path=local_path,

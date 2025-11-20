@@ -1161,11 +1161,9 @@ class LLaVAOneVision1_5_TextModel(Qwen2VLPreTrainedModel):
             )
 
         # Use 1D position embedding instead of 3D
+        # assert 1==3, f'position_ids: {position_ids.shape if position_ids is not None else None}'
         if position_ids is None:
-            position_ids = cache_position.view(1, -1).expand(inputs_embeds.shape[0], -1)
-        elif position_ids.dim() == 3:  # 如果输入是3D的，将其压缩为1D
-            position_ids = position_ids[0]  # 取第一个维度作为1D position_ids
-            raise NotImplementedError("3D position_ids is not implemented yet.")
+            position_ids = cache_position.view(1, 1, -1).expand(3, inputs_embeds.shape[0], -1)
 
         causal_mask = self._update_causal_mask(
             attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
@@ -1397,8 +1395,10 @@ class LLaVAOneVision1_5_Model(Qwen2VLPreTrainedModel):
 
     def __init__(self, config: Llavaonevision1_5Config):
         super().__init__(config)
-        self.visual = RiceTransformerPretrainedModel._from_config(config.vision_config, dtype=torch.bfloat16)
-        self.language_model = LLaVAOneVision1_5_TextModel._from_config(config.text_config, dtype=torch.bfloat16)
+        self.visual = RiceTransformerPretrainedModel._from_config(config.vision_config)
+        self.language_model = LLaVAOneVision1_5_TextModel._from_config(config.text_config)
+        self.visual=self.visual.to(torch.bfloat16)
+        self.language_model=self.language_model.to(torch.bfloat16)
         self.rope_deltas = None  # cache rope_deltas here
 
         # Initialize weights and apply final processing
@@ -1676,8 +1676,8 @@ class LLaVAOneVision1_5_Model(Qwen2VLPreTrainedModel):
             )
 
         if position_ids is None:
-            # Use 1D position_ids instead of 3D
-            position_ids = cache_position  # shape: [batch_size, seq_len]
+            position_ids = cache_position.unsqueeze(0)
+        # assert 1==3, f'position_ids: {position_ids.shape if position_ids is not None else None}, inputs_embeds: {inputs_embeds.shape if inputs_embeds is not None else None}'
 
 
         outputs = self.language_model(
@@ -1867,7 +1867,7 @@ class LLaVAOneVision1_5_ForConditionalGeneration(Qwen2VLPreTrainedModel, Generat
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "The image shows a street scene with a red stop sign in the foreground. In the background, there is a large red gate with Chinese characters ..."
         ```"""
-
+        position_ids = None
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -1875,6 +1875,8 @@ class LLaVAOneVision1_5_ForConditionalGeneration(Qwen2VLPreTrainedModel, Generat
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         # print(f'sum(image_ids):{(input_ids == 151655).sum()}')
         # assert 3==5, f'\ninput_ids: {input_ids[:,300:]},\nlabels: {labels[:,300:]}\nnum_16555:{(input_ids == 151655).sum()}'
+        # model_inputs["position_ids"] = None
+        # assert 4==3, f'position_ids: {position_ids.shape}' None
 
         outputs = self.model(
             input_ids=input_ids,

@@ -170,6 +170,49 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         "prompt_length/clip_ratio": torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
     }
 
+    # record extra reward components if available in non-tensor batch
+    # expects lists/arrays added by reward manager, e.g., "format_score", "acc_score"
+    for extra_key in ["format_score", "acc_score"]:
+        if extra_key in batch.non_tensor_batch and len(batch.non_tensor_batch[extra_key]) > 0:
+            try:
+                vals = torch.tensor(batch.non_tensor_batch[extra_key], dtype=torch.float32)
+                metrics[f"reward/{extra_key}/mean"] = torch.mean(vals).item()
+                metrics[f"reward/{extra_key}/max"] = torch.max(vals).item()
+                metrics[f"reward/{extra_key}/min"] = torch.min(vals).item()
+            except Exception:
+                # best-effort logging; ignore if conversion fails
+                pass
+
+    # split reward metrics by data_source if available
+    # we output mean per data_source for: score (sequence_reward), format_score, acc_score
+    try:
+        data_sources = batch.non_tensor_batch.get("data_source", None)
+        if data_sources is not None:
+            # build index list per data_source
+            ds2idxs = defaultdict(list)
+            for idx, ds in enumerate(list(data_sources)):
+                ds2idxs[str(ds)].append(idx)
+
+            # 1) score by data_source using sequence_reward
+            for ds, idxs in ds2idxs.items():
+                idx_tensor = torch.tensor(idxs, dtype=torch.long, device=sequence_reward.device)
+                ds_vals = torch.index_select(sequence_reward, 0, idx_tensor)
+                metrics[f"reward/score/{ds}"] = torch.mean(ds_vals).detach().item()
+
+            # 2) extra components by data_source if present
+            for extra_key in ["format_score", "acc_score"]:
+                if extra_key in batch.non_tensor_batch and len(batch.non_tensor_batch[extra_key]) > 0:
+                    try:
+                        vals = torch.tensor(batch.non_tensor_batch[extra_key], dtype=torch.float32)
+                        for ds, idxs in ds2idxs.items():
+                            ds_vals = vals[idxs]
+                            metrics[f"reward/{extra_key}/{ds}"] = torch.mean(ds_vals).item()
+                    except Exception:
+                        pass
+    except Exception:
+        # do not fail training due to metrics logging
+        pass
+
     # multi-turn conversation
     if "__num_turns__" in batch.non_tensor_batch:
         num_turns = batch.non_tensor_batch["__num_turns__"]

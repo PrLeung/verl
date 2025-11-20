@@ -18,20 +18,20 @@ import copy
 import logging
 import os
 import re
+import time
 from collections import defaultdict
 from time import sleep
-import time
 from typing import Optional
 
 import datasets
 import numpy as np
 import torch
 from omegaconf import DictConfig, ListConfig
-from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer, ProcessorMixin
 from PIL import Image
+from torch.utils.data import Dataset
 
 import verl.utils.torch_functional as verl_F
+from transformers import PreTrainedTokenizer, ProcessorMixin
 from verl.utils.model import compute_position_id_with_mask
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,9 @@ def collate_fn(data_list: list[dict]) -> dict:
     return {**tensors, **non_tensors}
 
 import torch
+
 from transformers import LogitsProcessor
+
 
 class FirstTokenMask(LogitsProcessor):
     def __init__(self, allowed_ids, prompt_lengths):
@@ -178,7 +180,8 @@ class RLHFDataset(Dataset):
             video_key = self.video_key
 
             if processor is not None:
-                from verl.utils.dataset.vision_utils import process_image, process_video
+                from verl.utils.dataset.vision_utils import (process_image,
+                                                             process_video)
 
                 def doc2len(doc) -> int:
                     messages, answer = self._build_messages(doc)
@@ -260,18 +263,27 @@ class RLHFDataset(Dataset):
         - "think_format": 基于 data_source 追加 <think>/<no_think>
         - "auto_think": 不追加任何后缀
         """
+        # 对于think_no类型的样本，先将answer中的<|think|></|think|>替换为<|think_no|></|think_no|>
+        data_source = row_dict.get("data_source", "")
+        if isinstance(data_source, str) and isinstance(answer, str) and data_source.lower()=="think_no":
+            # 使用正则表达式替换<|think|>和</|think|>标签
+            import re
+            answer = re.sub(r'<\|think\|>', '<|think_no|>', answer)
+            answer = re.sub(r'</\|think\|>', '</|think_no|>', answer)
+            # 清空 <|think_no|> 与 </|think_no|> 标签之间的内容
+            answer = re.sub(r'(<\|think_no\|>)([\s\S]*?)(</\|think_no\|>)', r'\1\3', answer)
+        
         mode = getattr(self, "answer_suffix_mode", "stage1")
+        # if mode == "stage1":
+        #     idx = answer.find("<|answer|>") if isinstance(answer, str) else -1
+        #     answer_prefix = (
+        #         answer[: idx + len("<|answer|>")]
+        #         if isinstance(answer, str) and idx != -1
+        #         else (answer if isinstance(answer, str) else "")
+        #     )
+        #     return raw_prompt + answer_prefix
         if mode == "stage1":
-            idx = answer.find("<|answer|>") if isinstance(answer, str) else -1
-            answer_prefix = (
-                answer[: idx + len("<|answer|>")]
-                if isinstance(answer, str) and idx != -1
-                else (answer if isinstance(answer, str) else "")
-            )
-            return raw_prompt + answer_prefix
-        elif mode == "stage2":
-            data_source = row_dict.get("data_source", "")
-            if isinstance(data_source, str) and ("llava_cot" in data_source.lower() or "think" in data_source.lower()):
+            if isinstance(data_source, str) and data_source.lower()=="think" or data_source.lower()=="llava_cot":
                 idx = answer.find("</|think|>") if isinstance(answer, str) else -1
                 answer_prefix = (
                     answer[: idx + len("</|think|>")]
@@ -286,12 +298,11 @@ class RLHFDataset(Dataset):
                     else (answer if isinstance(answer, str) else "")
                 )
             return raw_prompt + answer_prefix
-        elif mode == "stage3":
-            data_source = row_dict.get("data_source", "")
-            if isinstance(data_source, str) and ("llava_cot" in data_source.lower() or "think" in data_source.lower()):
+        elif mode == "stage1_1":
+            if isinstance(data_source, str) and data_source.lower()=="think" or data_source.lower()=="llava_cot":
                 return raw_prompt + "<|think|>"
             return raw_prompt + "<|think_no|>"
-        elif mode == "stage4":
+        elif mode == "stage2":
             return raw_prompt + "<|think"
         else:
             return raw_prompt
@@ -305,11 +316,16 @@ class RLHFDataset(Dataset):
         model_inputs = {}
 
         if self.processor is not None:
-            from verl.utils.dataset.vision_utils import process_image, process_video
+            from verl.utils.dataset.vision_utils import (process_image,
+                                                         process_video)
 
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             raw_prompt = self._apply_suffix(raw_prompt, row_dict, answer)
             multi_modal_data = {}
+
+            # 添加data_source参数到multi_modal_data
+            data_source = row_dict.get("data_source", "")
+            multi_modal_data["data_source"] = data_source
 
             images = None
             if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
@@ -363,21 +379,22 @@ class RLHFDataset(Dataset):
         )
 
         # if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-        #     from verl.models.transformers.qwen2_vl import get_rope_index
+        if self.config.model_type == "qwen2_5_vl":
+            from verl.models.transformers.qwen2_vl import get_rope_index
 
-        #     position_ids = [
-        #         get_rope_index(
-        #             self.processor,
-        #             input_ids=input_ids[0],
-        #             image_grid_thw=model_inputs.get("image_grid_thw"),
-        #             video_grid_thw=model_inputs.get("video_grid_thw"),
-        #             second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-        #             attention_mask=attention_mask[0],
-        #         )
-        #     ]  # (1, 3, seq_len)
+            position_ids = [
+                get_rope_index(
+                    self.processor,
+                    input_ids=input_ids[0],
+                    image_grid_thw=model_inputs.get("image_grid_thw"),
+                    video_grid_thw=model_inputs.get("video_grid_thw"),
+                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+                    attention_mask=attention_mask[0],
+                )
+            ]  # (1, 3, seq_len)
 
-        # else:
-        position_ids = compute_position_id_with_mask(attention_mask)
+        else:
+            position_ids = compute_position_id_with_mask(attention_mask)
 
         row_dict["input_ids"] = input_ids[0]
         row_dict["attention_mask"] = attention_mask[0]
