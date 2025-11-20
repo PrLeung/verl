@@ -19,39 +19,34 @@ Vision-Language Models (VLMs) excel in complex reasoning tasks but are often con
 
 ---
 
-## 🚀 1. Stage 1 — `qwen2.5-vl-fp16-stage1.sh`
+## 🚀 1. Stage 1
 
 ```bash
-bash examples/cvpr/qwen2.5-vl-fp16-stage1.sh vllm /path/to/base-or-sft-ckpt
+bash examples/cvpr/qwen2.5-vl-fp16-stage1.sh
 ```
 
-* Runs GRPO on `DATASET_NAME=mix_think_no_50k_think_41k`.
-* Ray outputs multiple `global_step_xxx` checkpoints.
 * Record the checkpoint marked as **best**.
 
 ---
 
-## 🚀 2. Stage 1_1 — `qwen2.5-vl-fp16-stage1_1.sh`
+## 🚀 2. Stage 1_1
 
 ```bash
-bash examples/cvpr/qwen2.5-vl-fp16-stage1_1.sh vllm /path/to/stage1-best
+bash examples/cvpr/qwen2.5-vl-fp16-stage1_1.sh
 ```
 
 * Input the **best checkpoint** from Stage 1.
-* Trains with `answer_suffix_mode=stage1_1`.
 * Produces another **best** checkpoint.
 
 ---
 
-## 🚀 3. Stage 2 — `qwen2.5-vl-fp16-stage2.sh`
+## 🚀 3. Stage 2
 
 ```bash
-bash examples/cvpr/qwen2.5-vl-fp16-stage2.sh vllm /path/to/stage1_1-best
+bash examples/cvpr/qwen2.5-vl-fp16-stage2.sh
 ```
 
-* Uses the same dataset.
-* Switches to `answer_suffix_mode=stage2`.
-* Produces the **final best model** for inference.
+* Produces the **final best model**.
 
 ---
 
